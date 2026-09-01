@@ -1,0 +1,17 @@
+{
+  "identifier": "default",
+  "description": "Default capabilities for AnyEcho",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:window:default",
+    "core:window:allow-show",
+    "core:window:allow-hide",
+    "core:window:allow-set-focus",
+    "core:window:allow-set-always-on-top",
+    "core:window:allow-is-visible",
+    "core:tray:default",
+    "global-shortcut:default",
+    "shell:allow-open"
+  ]
+}
