@@ -49,7 +49,12 @@ impl SearchEngine {
         }
     }
 
+    pub fn len(&self) -> usize {
+        self.files.len()
+    }
+
     pub fn set_exclusions(&mut self, patterns: Vec<String>) {
+
         self.exclusions = patterns.iter().map(|p| p.to_lowercase()).collect();
     }
 

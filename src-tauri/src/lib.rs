@@ -1,3 +1,4 @@
+pub mod cli;
 mod commands;
 pub mod content_search;
 pub mod engine;
@@ -35,7 +36,12 @@ pub struct ScanResult {
 }
 
 pub fn run() {
+    if cli::handle_cli_args() {
+        return;
+    }
+
     let log_dir = {
+
         let local_app_data = std::env::var("LOCALAPPDATA").unwrap_or_else(|_| ".".to_string());
         let dir = std::path::PathBuf::from(local_app_data)
             .join("anyecho")
