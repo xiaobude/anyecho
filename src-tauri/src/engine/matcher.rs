@@ -111,34 +111,44 @@ fn match_single_term(file: &IndexedFile, term: &str) -> bool {
         return true;
     }
 
-    // 2. 通配符模式匹配 (* 或 ?)
+    // 2. 如果包含路径分隔符 (\ 或 /)
+    if term.contains('\\') || term.contains('/') {
+        let norm_term = term.replace('/', "\\");
+        if norm_term.contains('*') || norm_term.contains('?') {
+            let full_norm = if norm_term.starts_with('*') {
+                norm_term
+            } else {
+                format!("*{}*", norm_term)
+            };
+            if wildcard_match(&file.full_path_lower, &full_norm) {
+                return true;
+            }
+        } else if file.full_path_lower.contains(&norm_term) {
+            return true;
+        }
+    }
+
+    // 3. 通配符模式匹配 (* 或 ?) 对文件名
     if (term.contains('*') || term.contains('?')) && wildcard_match(&file.name_lower, term) {
         return true;
     }
 
-    // 3. 中文拼音首字母缩写匹配 (如 fx 匹配 凡响)
+    // 4. 中文拼音首字母缩写匹配 (如 fx 匹配 凡响)
     if let Some(ref pinyin_first) = file.pinyin_first {
         if pinyin_first.contains(term) {
             return true;
         }
     }
 
-    // 4. 中文全拼匹配 (如 fanxiang 匹配 凡响)
+    // 5. 中文全拼匹配 (如 fanxiang 匹配 凡响)
     if let Some(ref pinyin_full) = file.pinyin_full {
         if pinyin_full.contains(term) {
             return true;
         }
     }
 
-    // 5. 完整路径包含匹配 (若 term 包含斜杠)
-    if term.contains('\\') || term.contains('/') {
-        let norm_term = term.replace('/', "\\");
-        if file.full_path_lower.contains(&norm_term) {
-            return true;
-        }
-    }
-
     false
+
 }
 
 /// 快速通配符模式匹配 (*, ?)

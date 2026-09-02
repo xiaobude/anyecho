@@ -3,8 +3,11 @@ use std::fs;
 use std::path::Path;
 use std::time::Instant;
 use crate::engine::SearchEngine;
+use crate::engine::filter::ParsedQuery;
+use crate::content_search::search_content_with_query;
 use crate::persistence::{get_snapshot_path, Database};
 use crate::scanner::scan_all_volumes_with_files;
+
 
 pub fn handle_cli_args() -> bool {
     let args: Vec<String> = env::args().collect();
@@ -101,6 +104,10 @@ fn print_help() {
     ae type:ai                  # 检索所有 AI 模型与权重 (gguf, safetensors, pt, nvfp4...)
     ae ext:pdf size:>10MB       # 检索大于 10MB 的 PDF 文档
     ae "D:\AI\*.md"             # 检索指定路径下的 Markdown 笔记
+    ae c:"父亲和儿子"           # 【全文检索】在所有文本中极速查找包含 "父亲和儿子" 的行
+    ae type:doc c:"父亲和儿子"   # 【组合过滤】仅在文档类文件中检索指定文本内容
+    ae *.txt content:hello      # 【通配符过滤】仅在 txt 文件中检索内容 hello
+
 
 选项 (Options):
     -n, --limit <NUM>           限制全局搜索结果条数 (默认: 50)
@@ -336,8 +343,62 @@ fn run_cli_search(query: &str, limit: usize, json_mode: bool, path_only: bool) {
         }
     }
 
+    let parsed = ParsedQuery::parse(query);
+
+    if !parsed.content_terms.is_empty() {
+        let keyword = parsed.content_terms.join(" ");
+        let content_resp = search_content_with_query(engine.files(), &parsed, &keyword);
+        let search_ms = content_resp.search_time_us as f64 / 1000.0;
+
+        if json_mode {
+            println!("{}", serde_json::to_string_pretty(&content_resp).unwrap_or_default());
+            return;
+        }
+
+        if path_only {
+            let mut seen = std::collections::HashSet::new();
+            for m in &content_resp.matches {
+                if seen.insert(&m.file_path) {
+                    println!("{}", m.file_path);
+                }
+            }
+            return;
+        }
+
+        println!();
+        println!("⚡ 凡响 AnyEcho | 文本内容检索: \"{}\" | 命中: {} 处匹配 (扫描 {} 个文本文件, 耗时: {:.2} ms)", 
+            keyword, content_resp.total_matches, content_resp.files_searched, search_ms);
+        println!("{}", "-".repeat(110));
+        println!("{:<4} {:<45} {:<8} {}", "#", "文件路径 (File)", "行号", "匹配行内容片段 (Snippet)");
+        println!("{}", "-".repeat(110));
+
+        for (idx, m) in content_resp.matches.iter().take(limit).enumerate() {
+            let path_truncated = if m.file_path.chars().count() > 42 {
+                let suffix: String = m.file_path.chars().rev().take(39).collect();
+                format!("...{}", suffix.chars().rev().collect::<String>())
+            } else {
+                m.file_path.clone()
+            };
+
+            let line_trimmed = m.line_text.trim();
+            let snippet = if line_trimmed.chars().count() > 52 {
+                format!("{}...", line_trimmed.chars().take(49).collect::<String>())
+            } else {
+                line_trimmed.to_string()
+            };
+
+            println!("{:<4} {:<45} {:<8} {}", idx + 1, path_truncated, m.line_number, snippet);
+        }
+
+        println!("{}", "-".repeat(110));
+        println!("📊 检索统计: 共命中 {} 处匹配 (显示前 {} 条)", content_resp.total_matches, content_resp.matches.len().min(limit));
+        println!();
+        return;
+    }
+
     let response = engine.search(query, 0, limit);
     let search_ms = response.search_time_us as f64 / 1000.0;
+
 
     if json_mode {
         println!("{}", serde_json::to_string_pretty(&response).unwrap_or_default());

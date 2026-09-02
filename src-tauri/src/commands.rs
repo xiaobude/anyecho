@@ -138,16 +138,11 @@ pub async fn search_content(
             });
         }
 
-        let file_filter = if parsed.text_terms.is_empty() {
-            None
-        } else {
-            Some(parsed.text_terms.join(" "))
-        };
-
         let eng = engine.read();
         let files = eng.files_ref();
 
-        let response = content_search::search_content(files, &keyword, file_filter.as_deref());
+        let response = content_search::search_content_with_query(files, &parsed, &keyword);
+
 
         let batch_size = 50;
         let total = response.matches.len();

@@ -109,6 +109,58 @@ pub fn search_content(
     }
 }
 
+pub fn search_content_with_query(
+    files: &[IndexedFile],
+    parsed: &crate::engine::filter::ParsedQuery,
+    keyword: &str,
+) -> ContentSearchResponse {
+    let start = std::time::Instant::now();
+    let keyword_lower = keyword.to_lowercase();
+
+    let candidates: Vec<&IndexedFile> = files
+        .iter()
+        .filter(|f| {
+            if f.is_directory {
+                return false;
+            }
+            if !is_text_extension(&f.ext) {
+                return false;
+            }
+            if f.size > MAX_CONTENT_SIZE {
+                return false;
+            }
+            if !crate::engine::matcher::matches_query(f, parsed) {
+                return false;
+            }
+            true
+        })
+        .collect();
+
+    let files_searched = candidates.len();
+
+    let mut all_matches: Vec<ContentMatch> = candidates
+        .par_iter()
+        .flat_map(|file| {
+            search_file_content(file, &keyword_lower).unwrap_or_default()
+        })
+        .collect();
+
+    all_matches.sort_by(|a, b| {
+        a.file_path.cmp(&b.file_path).then(a.line_number.cmp(&b.line_number))
+    });
+
+    let total_matches = all_matches.len();
+
+    ContentSearchResponse {
+        matches: all_matches,
+        files_searched,
+        total_matches,
+        search_time_us: start.elapsed().as_micros() as u64,
+        is_complete: true,
+    }
+}
+
+
 fn search_file_content(file: &IndexedFile, keyword_lower: &str) -> Option<Vec<ContentMatch>> {
     let path = Path::new(&file.full_path);
     if !path.exists() {

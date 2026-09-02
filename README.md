@@ -150,6 +150,13 @@ ae qwen3.8-27b
 # AI 大模型权重检索
 ae type:ai nvfp4
 
+# 全文文本内容搜索 (支持 c: 或 content:，包含空格用引号包裹)
+ae c:"父亲和儿子"
+
+# 组合过滤：在文档或指定路径中检索特定文本内容
+ae type:doc *.txt c:"父亲和儿子"
+ae "D:\AI\*.md" content:"llama"
+
 # 正则表达式检索
 ae "regex:^qwen.*\.gguf$"
 
@@ -161,6 +168,7 @@ ae type:ai qwen3.8-27b -p | Select-String "nvfp4"
 
 # JSON 格式输出（便于外部脚本解析）
 ae qwen --json
+
 ```
 
 ---

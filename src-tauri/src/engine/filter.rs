@@ -35,6 +35,33 @@ pub struct ParsedQuery {
     pub content_terms: Vec<String>,
 }
 
+pub fn tokenize_query(query_str: &str) -> Vec<String> {
+    let mut tokens = Vec::new();
+    let mut current = String::new();
+    let mut in_quotes = false;
+
+    for ch in query_str.chars() {
+        match ch {
+            '"' => {
+                in_quotes = !in_quotes;
+            }
+            ' ' | '\t' | '\r' | '\n' if !in_quotes => {
+                if !current.is_empty() {
+                    tokens.push(current.clone());
+                    current.clear();
+                }
+            }
+            _ => {
+                current.push(ch);
+            }
+        }
+    }
+    if !current.is_empty() {
+        tokens.push(current);
+    }
+    tokens
+}
+
 impl ParsedQuery {
     pub fn parse(query_str: &str) -> Self {
         let mut text_terms = Vec::new();
@@ -47,16 +74,25 @@ impl ParsedQuery {
         let mut path_excludes = Vec::new();
         let mut content_terms = Vec::new();
 
-        let tokens = query_str.split_whitespace();
+        let tokens = tokenize_query(query_str);
 
-        for token in tokens {
+        for token in &tokens {
             let lower_token = token.to_lowercase();
 
-            if let Some(content) = lower_token.strip_prefix("content:") {
-                if !content.is_empty() {
-                    content_terms.push(content.to_string());
+            if let Some(_content) = lower_token.strip_prefix("content:") {
+                let raw_content = &token["content:".len()..];
+                let cleaned = raw_content.trim_matches('"').trim();
+                if !cleaned.is_empty() {
+                    content_terms.push(cleaned.to_string());
+                }
+            } else if let Some(_content) = lower_token.strip_prefix("c:") {
+                let raw_content = &token["c:".len()..];
+                let cleaned = raw_content.trim_matches('"').trim();
+                if !cleaned.is_empty() {
+                    content_terms.push(cleaned.to_string());
                 }
             } else if let Some(ext) = lower_token.strip_prefix("ext:") {
+
                 for e in ext.split('|') {
                     let cleaned = e.trim_start_matches('.').trim();
                     if !cleaned.is_empty() {

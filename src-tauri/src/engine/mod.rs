@@ -212,6 +212,11 @@ impl SearchEngine {
         self.files.len()
     }
 
+    pub fn files(&self) -> &[IndexedFile] {
+        &self.files
+    }
+
+
     pub fn add_file(&mut self, file: IndexedFile) {
         let idx = self.files.len();
         self.frn_to_index.insert(file.frn, idx);
