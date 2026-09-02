@@ -114,13 +114,14 @@
     { id: 'all', label: t.filterAll, icon: '⚡', queryPrefix: '' },
     { id: 'ai', label: t.filterAi, icon: '🤖', queryPrefix: 'type:ai ' },
     { id: 'folder', label: t.filterFolder, icon: '📁', queryPrefix: 'type:folder ' },
-    { id: 'doc', label: t.filterDoc, icon: '📄', queryPrefix: 'ext:doc|docx|pdf|txt|md|xlsx|pptx|csv ' },
-    { id: 'image', label: t.filterImage, icon: '🖼️', queryPrefix: 'ext:png|jpg|jpeg|gif|webp|svg|ico|bmp ' },
-    { id: 'video', label: t.filterVideo, icon: '🎬', queryPrefix: 'ext:mp4|mkv|avi|mov|wmv|flv ' },
-    { id: 'audio', label: t.filterAudio, icon: '🎵', queryPrefix: 'ext:mp3|flac|wav|aac|ogg|m4a ' },
-    { id: 'app', label: t.filterApp, icon: '⚡', queryPrefix: 'ext:exe|msi|bat|cmd|ps1|lnk ' },
-    { id: 'archive', label: t.filterArchive, icon: '📦', queryPrefix: 'ext:zip|rar|7z|tar|gz ' },
+    { id: 'doc', label: t.filterDoc, icon: '📄', queryPrefix: 'type:doc ' },
+    { id: 'image', label: t.filterImage, icon: '🖼️', queryPrefix: 'type:image ' },
+    { id: 'video', label: t.filterVideo, icon: '🎬', queryPrefix: 'type:video ' },
+    { id: 'audio', label: t.filterAudio, icon: '🎵', queryPrefix: 'type:audio ' },
+    { id: 'app', label: t.filterApp, icon: '⚡', queryPrefix: 'type:app ' },
+    { id: 'archive', label: t.filterArchive, icon: '📦', queryPrefix: 'type:archive ' },
   ]);
+
 
   function showToast(msg: string) {
     toastMessage = msg;

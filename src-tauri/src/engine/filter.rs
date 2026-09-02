@@ -75,11 +75,11 @@ impl ParsedQuery {
                 if let Some(filter) = parse_date_filter(mod_str) {
                     date_filters.push(filter);
                 }
-            } else if lower_token == "type:folder" || lower_token == "type:dir" || lower_token == "folder:" {
+            } else if lower_token == "type:folder" || lower_token == "type:dir" || lower_token == "folder:" || lower_token == "dir:" || lower_token == "kind:folder" || lower_token == "kind:dir" {
                 type_filter = Some(TypeFilter::FolderOnly);
-            } else if lower_token == "type:file" || lower_token == "file:" {
+            } else if lower_token == "type:file" || lower_token == "file:" || lower_token == "kind:file" {
                 type_filter = Some(TypeFilter::FileOnly);
-            } else if lower_token == "type:ai" || lower_token == "type:model" || lower_token == "ai:" || lower_token == "model:" {
+            } else if lower_token == "type:ai" || lower_token == "type:model" || lower_token == "ai:" || lower_token == "model:" || lower_token == "kind:ai" || lower_token == "kind:model" {
                 for e in &[
                     "gguf", "safetensors", "pt", "pth", "onnx", "bin", "ckpt", "tflite",
                     "engine", "trt", "nvfp4", "fp8", "awq", "gptq", "ggml", "mlmodel",
@@ -87,14 +87,62 @@ impl ParsedQuery {
                 ] {
                     ext_filters.push(e.to_string());
                 }
+            } else if lower_token == "type:doc" || lower_token == "type:document" || lower_token == "type:docs" || lower_token == "doc:" || lower_token == "docs:" || lower_token == "kind:doc" || lower_token == "kind:document" {
+                for e in &[
+                    "doc", "docx", "pdf", "txt", "md", "xls", "xlsx", "csv", "ppt", "pptx",
+                    "wps", "rtf", "odt", "epub", "log", "tex"
+                ] {
+                    ext_filters.push(e.to_string());
+                }
+            } else if lower_token == "type:image" || lower_token == "type:pic" || lower_token == "type:picture" || lower_token == "type:photo" || lower_token == "pic:" || lower_token == "image:" || lower_token == "img:" || lower_token == "kind:image" || lower_token == "kind:pic" {
+                for e in &[
+                    "png", "jpg", "jpeg", "gif", "webp", "svg", "ico", "bmp", "tiff", "psd", "raw", "heic"
+                ] {
+                    ext_filters.push(e.to_string());
+                }
+            } else if lower_token == "type:video" || lower_token == "type:movie" || lower_token == "video:" || lower_token == "movie:" || lower_token == "kind:video" {
+                for e in &[
+                    "mp4", "mkv", "avi", "mov", "wmv", "flv", "webm", "m4v", "rmvb", "ts"
+                ] {
+                    ext_filters.push(e.to_string());
+                }
+            } else if lower_token == "type:audio" || lower_token == "type:music" || lower_token == "audio:" || lower_token == "music:" || lower_token == "kind:audio" {
+                for e in &[
+                    "mp3", "flac", "wav", "aac", "ogg", "m4a", "wma", "ape", "mid"
+                ] {
+                    ext_filters.push(e.to_string());
+                }
+            } else if lower_token == "type:code" || lower_token == "type:source" || lower_token == "code:" || lower_token == "src:" || lower_token == "kind:code" {
+                for e in &[
+                    "rs", "ts", "js", "py", "c", "cpp", "h", "hpp", "go", "java", "html",
+                    "css", "svelte", "vue", "json", "toml", "yaml", "xml", "sql", "sh",
+                    "bat", "ps1", "php", "rb", "swift", "kt", "lua"
+                ] {
+                    ext_filters.push(e.to_string());
+                }
+            } else if lower_token == "type:app" || lower_token == "type:exe" || lower_token == "type:program" || lower_token == "exe:" || lower_token == "app:" || lower_token == "kind:app" || lower_token == "kind:exe" {
+                for e in &[
+                    "exe", "msi", "bat", "cmd", "ps1", "lnk", "vbs", "jar"
+                ] {
+                    ext_filters.push(e.to_string());
+                }
+            } else if lower_token == "type:archive" || lower_token == "type:zip" || lower_token == "type:compressed" || lower_token == "zip:" || lower_token == "archive:" || lower_token == "kind:archive" || lower_token == "kind:zip" {
+                for e in &[
+                    "zip", "rar", "7z", "tar", "gz", "bz2", "xz", "iso", "cab"
+                ] {
+                    ext_filters.push(e.to_string());
+                }
             } else if let Some(p) = lower_token.strip_prefix("-path:") {
-
                 path_excludes.push(p.to_string());
             } else if let Some(p) = lower_token.strip_prefix("!path:") {
                 path_excludes.push(p.to_string());
             } else if let Some(p) = lower_token.strip_prefix("path:") {
                 path_includes.push(p.to_string());
             } else if let Some(re_str) = token.strip_prefix("regex:") {
+                if let Ok(re) = Regex::new(re_str) {
+                    regex_patterns.push(re);
+                }
+            } else if let Some(re_str) = token.strip_prefix("r:") {
                 if let Ok(re) = Regex::new(re_str) {
                     regex_patterns.push(re);
                 }
@@ -106,6 +154,7 @@ impl ParsedQuery {
             } else {
                 text_terms.push(lower_token.clone());
             }
+
         }
 
         Self {
