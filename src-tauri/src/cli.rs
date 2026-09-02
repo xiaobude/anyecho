@@ -423,10 +423,12 @@ fn run_cli_search(query: &str, limit: usize, json_mode: bool, path_only: bool) {
     println!("{}", "-".repeat(95));
 
     for (idx, item) in response.items.iter().enumerate() {
-        let name_truncated = if item.name.chars().count() > 30 {
-            format!("{}...", item.name.chars().take(27).collect::<String>())
+        let display_name = crate::content_search::decode_percent_encoded(&item.name);
+        let display_path = crate::content_search::decode_percent_encoded(&item.full_path);
+        let name_truncated = if display_name.chars().count() > 30 {
+            format!("{}...", display_name.chars().take(27).collect::<String>())
         } else {
-            item.name.clone()
+            display_name
         };
 
         let type_str = if item.is_directory {
@@ -440,8 +442,9 @@ fn run_cli_search(query: &str, limit: usize, json_mode: bool, path_only: bool) {
         let size_str = format_size(item.size, item.is_directory);
 
         println!("{:<4} {:<32} {:<10} {:<10} {}", 
-            idx + 1, name_truncated, type_str, size_str, item.full_path);
+            idx + 1, name_truncated, type_str, size_str, display_path);
     }
+
 
     println!("{}", "-".repeat(95));
     println!("📊 检索统计: 命中 {} 个项目 (总大小: {})", response.total_matches, total_size_str);

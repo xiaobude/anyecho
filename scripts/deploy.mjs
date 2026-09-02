@@ -1,9 +1,16 @@
 import fs from 'node:fs';
 import path from 'node:path';
+import { fileURLToPath } from 'node:url';
+
+
+const __filename = fileURLToPath(import.meta.url);
+const __dirname = path.dirname(__filename);
+const projectRoot = path.resolve(__dirname, '..');
 
 const localAppData = process.env.LOCALAPPDATA || path.join(process.env.USERPROFILE || 'C:\\Users\\xiaobude', 'AppData', 'Local');
 const targetDir = path.join(localAppData, 'Microsoft', 'WindowsApps');
-const releaseDir = path.join(process.cwd(), 'src-tauri', 'target', 'release');
+const releaseDir = path.join(projectRoot, 'src-tauri', 'target', 'release');
+
 
 console.log(`\n🚀 正在发布二进制文件到: ${targetDir}`);
 

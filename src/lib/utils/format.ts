@@ -149,3 +149,13 @@ export function getFileIcon(ext: string, isDirectory: boolean): { icon: string; 
       return { icon: '📄', color: 'text-gray-400' };
   }
 }
+
+export function decodeName(name: string): string {
+  if (!name || !name.includes('%')) return name;
+  try {
+    return decodeURIComponent(name);
+  } catch {
+    return name;
+  }
+}
+

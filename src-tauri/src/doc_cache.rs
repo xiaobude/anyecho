@@ -238,7 +238,8 @@ impl DocCache {
                     .into_iter()
                     .filter(|(path, _, _)| {
                         let path_lower = path.to_lowercase();
-                        if path_lower.contains("\\node_modules\\")
+                        if crate::content_search::is_noisy_history_or_temp_path(&path_lower)
+                            || path_lower.contains("\\node_modules\\")
                             || path_lower.contains("\\.git\\")
                             || path_lower.contains("\\appdata\\")
                             || path_lower.contains("\\windows\\")
@@ -248,6 +249,7 @@ impl DocCache {
                             return false;
                         }
                         true
+
                     })
                     .collect();
 

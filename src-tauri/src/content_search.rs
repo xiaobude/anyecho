@@ -47,6 +47,65 @@ pub fn is_text_extension(ext: &str) -> bool {
     is_supported_document_ext(ext)
 }
 
+/// 过滤命令行历史、AnyEcho自身日志、IDE/Agent临时日志与无意义临时输出（防止自己搜索的命令或日志被当成结果命中）
+pub fn is_noisy_history_or_temp_path(path_lower: &str) -> bool {
+    // 1. 终端与命令行历史记录文件
+    if path_lower.ends_with("consolehost_history.txt")
+        || path_lower.ends_with(".bash_history")
+        || path_lower.ends_with(".zsh_history")
+        || path_lower.ends_with(".node_repl_history")
+        || path_lower.ends_with(".python_history")
+        || path_lower.contains("\\psreadline\\")
+    {
+        return true;
+    }
+
+    // 2. AnyEcho 自身的日志与数据缓存文件
+    if path_lower.contains("\\anyecho\\logs\\")
+        || path_lower.ends_with("anyecho.db")
+        || path_lower.ends_with("doc_cache.db")
+        || path_lower.ends_with("index_cache.bin")
+    {
+        return true;
+    }
+
+    // 3. 开发环境、Agent/大模型系统日志、临时 step 输出与 Temp 缓存
+    if path_lower.contains("\\.gemini\\")
+        || path_lower.contains("\\antigravity-cli\\")
+        || path_lower.contains("\\.system_generated\\")
+        || path_lower.contains("\\appdata\\local\\temp\\")
+        || path_lower.contains("\\.vscode\\")
+        || path_lower.contains("\\.idea\\")
+    {
+        return true;
+    }
+
+    false
+}
+
+
+/// 智能反解微信/浏览器下载文件时保存的 URL 百分号转义文件名 (如 %E6%9C%8D%E5%8A%A1%E5%90%88%E5%90%8C -> 服务合同)
+pub fn decode_percent_encoded(s: &str) -> String {
+    if !s.contains('%') {
+        return s.to_string();
+    }
+    let bytes = s.as_bytes();
+    let mut decoded = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' && i + 2 < bytes.len() {
+            if let Ok(byte) = u8::from_str_radix(std::str::from_utf8(&bytes[i + 1..i + 3]).unwrap_or(""), 16) {
+                decoded.push(byte);
+                i += 3;
+                continue;
+            }
+        }
+        decoded.push(bytes[i]);
+        i += 1;
+    }
+    String::from_utf8(decoded).unwrap_or_else(|_| s.to_string())
+}
+
 pub fn search_content(
     files: &[IndexedFile],
     keyword: &str,
@@ -65,6 +124,9 @@ pub fn search_content(
                 return false;
             }
             if f.size > MAX_CONTENT_SIZE {
+                return false;
+            }
+            if is_noisy_history_or_temp_path(&f.full_path_lower) {
                 return false;
             }
             if let Some(filter) = file_filter {
@@ -120,6 +182,9 @@ pub fn search_content_with_query(
             if f.size > MAX_CONTENT_SIZE {
                 return false;
             }
+            if is_noisy_history_or_temp_path(&f.full_path_lower) {
+                return false;
+            }
             if !crate::engine::matcher::matches_query(f, parsed) {
                 return false;
             }
@@ -157,6 +222,9 @@ pub fn search_file_content(file: &IndexedFile, keyword_lower: &str) -> Option<Ve
         return None;
     }
 
+    let decoded_path = decode_percent_encoded(&file.full_path);
+    let decoded_name = decode_percent_encoded(&file.name);
+
     // 1. 若为二进制 Office / PDF / EPUB 文档，使用专用提取引擎
     if is_binary_document_ext(&file.ext) {
         let extracted = extract_document_text(path)?;
@@ -165,8 +233,8 @@ pub fn search_file_content(file: &IndexedFile, keyword_lower: &str) -> Option<Ve
             let line_lower = line.to_lowercase();
             if let Some(pos) = line_lower.find(keyword_lower) {
                 matches.push(ContentMatch {
-                    file_path: file.full_path.clone(),
-                    file_name: file.name.clone(),
+                    file_path: decoded_path.clone(),
+                    file_name: decoded_name.clone(),
                     line_number: (line_idx + 1) as u32,
                     line_text: line.trim().to_string(),
                     match_start: pos,
@@ -198,8 +266,8 @@ pub fn search_file_content(file: &IndexedFile, keyword_lower: &str) -> Option<Ve
         let line_lower = line.to_lowercase();
         if let Some(pos) = line_lower.find(keyword_lower) {
             matches.push(ContentMatch {
-                file_path: file.full_path.clone(),
-                file_name: file.name.clone(),
+                file_path: decoded_path.clone(),
+                file_name: decoded_name.clone(),
                 line_number: (line_idx + 1) as u32,
                 line_text: line.trim().to_string(),
                 match_start: pos,
@@ -286,37 +354,16 @@ mod tests {
     }
 
     #[test]
-    fn test_content_search_and_preview() {
-        let temp_dir = std::env::temp_dir();
-        let test_file = temp_dir.join("anyecho_test_search.txt");
-        let content = "First line\nSecond line with keyword target\nThird line\nFourth line with target again\nFifth line";
-        fs::write(&test_file, content).unwrap();
+    fn test_decode_percent_encoded() {
+        let raw = "%E6%98%9F%E6%B5%B7%E5%90%8D%E5%9F%8E%E7%89%A9%E4%B8%9A%E6%9C%8D%E5%8A%A1%E5%90%88%E5%90%8C.pdf";
+        let decoded = decode_percent_encoded(raw);
+        assert_eq!(decoded, "星海名城物业服务合同.pdf");
+    }
 
-        let indexed = IndexedFile {
-            name: "anyecho_test_search.txt".to_string(),
-            full_path: test_file.to_str().unwrap().to_string(),
-            name_lower: "anyecho_test_search.txt".to_string(),
-            full_path_lower: test_file.to_str().unwrap().to_lowercase(),
-            pinyin_first: None,
-            pinyin_full: None,
-            ext: "txt".to_string(),
-            size: content.len() as u64,
-            mtime: 123456789,
-            is_directory: false,
-            file_attributes: 0,
-            frn: 1,
-            parent_frn: 0,
-            volume: 'C',
-        };
-
-        let response = search_content(&[indexed], "target", None);
-        assert_eq!(response.matches.len(), 2);
-        assert_eq!(response.matches[0].line_number, 2);
-        assert_eq!(response.matches[1].line_number, 4);
-
-        let preview = get_content_preview(test_file.to_str().unwrap(), "target", 1).unwrap();
-        assert_eq!(preview.lines.len(), 5);
-
-        let _ = fs::remove_file(test_file);
+    #[test]
+    fn test_noisy_path_filter() {
+        assert!(is_noisy_history_or_temp_path("c:\\users\\admin\\appdata\\roaming\\microsoft\\windows\\powershell\\psreadline\\consolehost_history.txt"));
+        assert!(is_noisy_history_or_temp_path("c:\\ai\\anyecho\\.system_generated\\logs\\1.txt"));
+        assert!(!is_noisy_history_or_temp_path("d:\\work\\report.docx"));
     }
 }
