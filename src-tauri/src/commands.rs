@@ -124,9 +124,7 @@ pub async fn search_content(
 
     let result = tokio::task::spawn_blocking(move || {
         let parsed = ParsedQuery::parse(&query);
-        let keyword = parsed.content_terms.first()
-            .cloned()
-            .unwrap_or_default();
+        let keyword = parsed.content_terms.join(" ");
 
         if keyword.is_empty() {
             return Ok::<ContentSearchResponse, String>(ContentSearchResponse {
@@ -143,7 +141,6 @@ pub async fn search_content(
 
         let response = content_search::search_content_with_query(files, &parsed, &keyword);
 
-
         let batch_size = 50;
         let total = response.matches.len();
         let mut sent = 0;
@@ -155,10 +152,11 @@ pub async fn search_content(
             sent = end;
         }
 
-        let _ = app.emit("content-search-done", response.total_matches);
+        let _ = app.emit("content-search-done", &response);
 
         Ok(response)
     })
+
     .await
     .map_err(|e| format!("Task join error: {e}"))??;
 

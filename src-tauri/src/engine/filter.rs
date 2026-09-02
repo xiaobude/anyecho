@@ -64,6 +64,12 @@ pub fn tokenize_query(query_str: &str) -> Vec<String> {
 
 impl ParsedQuery {
     pub fn parse(query_str: &str) -> Self {
+        // 🇨🇳 中文标点自动平滑归一化：全角冒号/全角引号/全角括号自动转半角，避免用户频繁切换输入法
+        let normalized = query_str
+            .replace('：', ":")
+            .replace(['“', '”'], "\"")
+            .replace(['‘', '’'], "'");
+
         let mut text_terms = Vec::new();
         let mut regex_patterns = Vec::new();
         let mut ext_filters = Vec::new();
@@ -74,7 +80,8 @@ impl ParsedQuery {
         let mut path_excludes = Vec::new();
         let mut content_terms = Vec::new();
 
-        let tokens = tokenize_query(query_str);
+        let tokens = tokenize_query(&normalized);
+
 
         for token in &tokens {
             let lower_token = token.to_lowercase();
@@ -85,13 +92,26 @@ impl ParsedQuery {
                 if !cleaned.is_empty() {
                     content_terms.push(cleaned.to_string());
                 }
+            } else if let Some(_content) = lower_token.strip_prefix("content\"") {
+                let raw_content = &token["content".len()..];
+                let cleaned = raw_content.trim_matches('"').trim();
+                if !cleaned.is_empty() {
+                    content_terms.push(cleaned.to_string());
+                }
             } else if let Some(_content) = lower_token.strip_prefix("c:") {
                 let raw_content = &token["c:".len()..];
                 let cleaned = raw_content.trim_matches('"').trim();
                 if !cleaned.is_empty() {
                     content_terms.push(cleaned.to_string());
                 }
-            } else if let Some(ext) = lower_token.strip_prefix("ext:") {
+            } else if let Some(_content) = lower_token.strip_prefix("c\"") {
+                let raw_content = &token["c".len()..];
+                let cleaned = raw_content.trim_matches('"').trim();
+                if !cleaned.is_empty() {
+                    content_terms.push(cleaned.to_string());
+                }
+            }
+ else if let Some(ext) = lower_token.strip_prefix("ext:") {
 
                 for e in ext.split('|') {
                     let cleaned = e.trim_start_matches('.').trim();

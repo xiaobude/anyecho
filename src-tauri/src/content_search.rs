@@ -1,6 +1,7 @@
 use std::fs;
 use std::path::Path;
 
+
 use memmap2::Mmap;
 use rayon::prelude::*;
 use serde::Serialize;
@@ -83,7 +84,6 @@ pub fn is_noisy_history_or_temp_path(path_lower: &str) -> bool {
     false
 }
 
-
 /// 智能反解微信/浏览器下载文件时保存的 URL 百分号转义文件名 (如 %E6%9C%8D%E5%8A%A1%E5%90%88%E5%90%8C -> 服务合同)
 pub fn decode_percent_encoded(s: &str) -> String {
     if !s.contains('%') {
@@ -142,8 +142,8 @@ pub fn search_content(
 
     let mut all_matches: Vec<ContentMatch> = candidates
         .par_iter()
-        .flat_map(|file| {
-            search_file_content(file, &keyword_lower).unwrap_or_default()
+        .filter_map(|file| {
+            search_file_first_match(file, &keyword_lower)
         })
         .collect();
 
@@ -196,8 +196,8 @@ pub fn search_content_with_query(
 
     let mut all_matches: Vec<ContentMatch> = candidates
         .par_iter()
-        .flat_map(|file| {
-            search_file_content(file, &keyword_lower).unwrap_or_default()
+        .filter_map(|file| {
+            search_file_first_match(file, &keyword_lower)
         })
         .collect();
 
@@ -216,25 +216,47 @@ pub fn search_content_with_query(
     }
 }
 
-pub fn search_file_content(file: &IndexedFile, keyword_lower: &str) -> Option<Vec<ContentMatch>> {
+/// 核心短路优化：
+/// 1. ⚡ 零 I/O 短路：先比对文件名（支持 URL 解码后的中文名），命中立即返回（0ms 零磁盘读取）
+/// 2. 单文件找到首个关键词后立即返回，不再向下扫描剩余数万行，极大节省 CPU 和 I/O
+pub fn search_file_first_match(file: &IndexedFile, keyword_lower: &str) -> Option<ContentMatch> {
+    let decoded_name = decode_percent_encoded(&file.name);
+    let decoded_path = decode_percent_encoded(&file.full_path);
+
+    // ⚡ 终极加速：如果关键词本身就在文件名中（例如：通知-强化责任-安全检查.docx）
+    // 100% 必然命中！0 毫秒立即返回，完全不触发任何磁盘读写或解压！
+    let decoded_name_lower = decoded_name.to_lowercase();
+    if let Some(pos) = decoded_name_lower.find(keyword_lower) {
+        return Some(ContentMatch {
+            file_path: decoded_path,
+            file_name: decoded_name.clone(),
+            line_number: 0,
+            line_text: format!("📄 [文件名命中] {}", decoded_name),
+            match_start: pos,
+            match_end: pos + keyword_lower.len(),
+        });
+    }
+
     let path = Path::new(&file.full_path);
     if !path.exists() {
         return None;
     }
 
-    let decoded_path = decode_percent_encoded(&file.full_path);
-    let decoded_name = decode_percent_encoded(&file.name);
+    // 1. PDF 专属按页逐流流式短路搜索 (命中即停，无需解出全书所有页面)
+    if file.ext.eq_ignore_ascii_case("pdf") {
+        return search_pdf_first_match(path, keyword_lower, &decoded_path, &decoded_name);
+    }
 
-    // 1. 若为二进制 Office / PDF / EPUB 文档，使用专用提取引擎
+
+    // 2. 其余二进制 Office / EPUB / ODT 文档
     if is_binary_document_ext(&file.ext) {
         let extracted = extract_document_text(path)?;
-        let mut matches = Vec::new();
         for (line_idx, line) in extracted.text.lines().enumerate() {
             let line_lower = line.to_lowercase();
             if let Some(pos) = line_lower.find(keyword_lower) {
-                matches.push(ContentMatch {
-                    file_path: decoded_path.clone(),
-                    file_name: decoded_name.clone(),
+                return Some(ContentMatch {
+                    file_path: decoded_path,
+                    file_name: decoded_name,
                     line_number: (line_idx + 1) as u32,
                     line_text: line.trim().to_string(),
                     match_start: pos,
@@ -242,10 +264,10 @@ pub fn search_file_content(file: &IndexedFile, keyword_lower: &str) -> Option<Ve
                 });
             }
         }
-        return if matches.is_empty() { None } else { Some(matches) };
+        return None;
     }
 
-    // 2. 若为纯文本 / 代码文件，使用极速 mmap 内存映射
+    // 3. 纯文本 / 代码文件，使用极速 mmap 内存映射并在首个命中处短路返回
     let file_handle = fs::File::open(path).ok()?;
     let metadata = file_handle.metadata().ok()?;
 
@@ -260,14 +282,12 @@ pub fn search_file_content(file: &IndexedFile, keyword_lower: &str) -> Option<Ve
         return None;
     };
 
-    let mut matches = Vec::new();
-
     for (line_idx, line) in content.lines().enumerate() {
         let line_lower = line.to_lowercase();
         if let Some(pos) = line_lower.find(keyword_lower) {
-            matches.push(ContentMatch {
-                file_path: decoded_path.clone(),
-                file_name: decoded_name.clone(),
+            return Some(ContentMatch {
+                file_path: decoded_path,
+                file_name: decoded_name,
                 line_number: (line_idx + 1) as u32,
                 line_text: line.trim().to_string(),
                 match_start: pos,
@@ -276,11 +296,44 @@ pub fn search_file_content(file: &IndexedFile, keyword_lower: &str) -> Option<Ve
         }
     }
 
-    if matches.is_empty() {
-        None
-    } else {
-        Some(matches)
+    None
+}
+
+/// PDF 逐页流式提取并在首个匹配页立即短路退出
+fn search_pdf_first_match(
+    path: &Path,
+    keyword_lower: &str,
+    decoded_path: &str,
+    decoded_name: &str,
+) -> Option<ContentMatch> {
+    let doc = lopdf::Document::load(path).ok()?;
+    if doc.is_encrypted() {
+        return None;
     }
+
+    let pages = doc.get_pages();
+    let mut total_line_num = 1u32;
+
+    for (page_num, _) in pages {
+        if let Ok(text) = doc.extract_text(&[page_num]) {
+            for line in text.lines() {
+                let line_lower = line.to_lowercase();
+                if let Some(pos) = line_lower.find(keyword_lower) {
+                    return Some(ContentMatch {
+                        file_path: decoded_path.to_string(),
+                        file_name: decoded_name.to_string(),
+                        line_number: total_line_num,
+                        line_text: line.trim().to_string(),
+                        match_start: pos,
+                        match_end: pos + keyword_lower.len(),
+                    });
+                }
+                total_line_num += 1;
+            }
+        }
+    }
+
+    None
 }
 
 pub fn get_content_preview(file_path: &str, keyword: &str, context_lines: u32) -> Option<ContentPreview> {

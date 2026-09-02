@@ -31,14 +31,38 @@
   let selectedIndex = $state(0);
 
 
+  function normalizeQueryPunctuation(q: string): string {
+    if (!q) return '';
+    return q
+      .replace(/：/g, ':')
+      .replace(/[“”]/g, '"')
+      .replace(/[‘’]/g, "'");
+  }
+
+  function isQueryContentSearch(q: string): boolean {
+    if (!q) return false;
+    const normalized = normalizeQueryPunctuation(q).toLowerCase();
+    return /(?:^|\s)(?:content:|c:|content"|c")/.test(normalized) || normalized.startsWith('content:') || normalized.startsWith('c:') || normalized.startsWith('content"') || normalized.startsWith('c"');
+  }
+
+  function extractContentKeyword(q: string): string {
+    if (!q) return '';
+    const normalized = normalizeQueryPunctuation(q);
+    const m = normalized.match(/(?:content:|c:|content"|c")\s*"?([^"\s]+)"?/i);
+    if (m && m[1]) return m[1].replace(/["']/g, '').trim();
+    return '';
+  }
+
+
   // Content search states
-  let isContentSearch = $derived(query.toLowerCase().startsWith('content:') || query.toLowerCase().startsWith('c:'));
+  let isContentSearch = $derived(isQueryContentSearch(query));
   let contentMatches = $state<ContentMatch[]>([]);
   let contentSelectedIndex = $state(0);
   let contentSearchInProgress = $state(false);
   let contentTotalMatches = $state(0);
   let contentFilesSearched = $state(0);
   let contentSearchTimeUs = $state(0);
+
 
   // Knowledge search states
   let isKnowledgeSearch = $state(false);
@@ -171,7 +195,6 @@
   async function executeSearch() {
     const rawQuery = query.trim();
     if (!rawQuery && activeFilter === 'all') {
-      isContentSearch = false;
       contentMatches = [];
       try {
         const res = await invoke<SearchResponse>('search', {
@@ -190,8 +213,13 @@
       return;
     }
 
-    if (rawQuery.toLowerCase().includes('content:')) {
-      isContentSearch = true;
+    let fullQuery = rawQuery;
+    const currentOpt = filterOptions.find((o) => o.id === activeFilter);
+    if (currentOpt && currentOpt.queryPrefix && !rawQuery.includes(currentOpt.queryPrefix.trim())) {
+      fullQuery = `${currentOpt.queryPrefix}${rawQuery}`;
+    }
+
+    if (isQueryContentSearch(fullQuery)) {
       contentMatches = [];
       contentTotalMatches = 0;
       contentFilesSearched = 0;
@@ -205,7 +233,7 @@
           total_matches: number;
           search_time_us: number;
           is_complete: boolean;
-        }>('search_content', { query: rawQuery });
+        }>('search_content', { query: fullQuery });
 
         contentMatches = res.matches;
         contentTotalMatches = res.total_matches;
@@ -217,13 +245,6 @@
         contentSearchInProgress = false;
       }
       return;
-    }
-
-    isContentSearch = false;
-    let fullQuery = rawQuery;
-    const currentOpt = filterOptions.find((o) => o.id === activeFilter);
-    if (currentOpt && currentOpt.queryPrefix && !rawQuery.includes(currentOpt.queryPrefix.trim())) {
-      fullQuery = `${currentOpt.queryPrefix}${rawQuery}`;
     }
 
     try {
@@ -240,8 +261,8 @@
     } catch (e) {
       console.error('Search failed:', e);
     }
-
   }
+
 
   function handleQueryChange() {
     userNavigatedList = false;
@@ -338,14 +359,7 @@
     });
   }
 
-  function extractContentKeyword(q: string): string {
-    const lower = q.toLowerCase();
-    const idx = lower.indexOf('content:');
-    if (idx === -1) return '';
-    const rest = q.slice(idx + 8).trim();
-    const parts = rest.split(/\s+/);
-    return parts[0] || '';
-  }
+
 
   function highlightText(text: string, keyword: string): Array<{ text: string; isMatch: boolean }> {
     if (!keyword) return [{ text, isMatch: false }];
@@ -861,9 +875,10 @@
               </div>
 
               <div class="w-16 text-right text-gray-500 shrink-0 tabular-nums text-[10px] font-mono">
-                :{match.line_number}
+                {match.line_number === 0 ? '文件名' : `:${match.line_number}`}
               </div>
             </div>
+
           {/each}
         </div>
       {/if}

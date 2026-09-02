@@ -77,7 +77,11 @@ pub fn run_cli(args: &[String]) {
                 i += 1;
             }
 
+            #[cfg(windows)]
+            let query = get_raw_cli_query().unwrap_or_else(|| query_parts.join(" "));
+            #[cfg(not(windows))]
             let query = query_parts.join(" ");
+
             if query.trim().is_empty() {
                 run_cli_ls(Path::new("."));
             } else {
@@ -86,6 +90,71 @@ pub fn run_cli(args: &[String]) {
         }
     }
 }
+
+#[cfg(windows)]
+fn get_raw_cli_query() -> Option<String> {
+    use std::ffi::OsString;
+    use std::os::windows::ffi::OsStringExt;
+    extern "system" {
+        fn GetCommandLineW() -> *const u16;
+    }
+    unsafe {
+        let ptr = GetCommandLineW();
+        if ptr.is_null() {
+            return None;
+        }
+        let mut len = 0;
+        while *ptr.add(len) != 0 {
+            len += 1;
+        }
+        let slice = std::slice::from_raw_parts(ptr, len);
+        let raw = OsString::from_wide(slice).into_string().ok()?;
+        let trimmed = raw.trim();
+
+        // 剥离执行体自身路径（可能带双引号也可能不带）
+        let after_exe = if trimmed.starts_with('"') {
+            let rest = &trimmed[1..];
+            let end = rest.find('"')?;
+            rest[end + 1..].trim()
+        } else {
+            let space_idx = trimmed.find(' ')?;
+            trimmed[space_idx + 1..].trim()
+        };
+
+        if after_exe.is_empty() {
+            return None;
+        }
+
+        // 过滤 CLI 选项参数如 --limit 50, --json, --path 等，保留完整未被 shell 剥除引号的查询体
+        let tokens = crate::engine::filter::tokenize_query(after_exe);
+        let mut cleaned_tokens = Vec::new();
+        let mut i = 0;
+        while i < tokens.len() {
+            let t = &tokens[i];
+            if t == "--json" || t == "-j" || t == "--path" || t == "-p" {
+                i += 1;
+                continue;
+            }
+            if (t == "--limit" || t == "-n") && i + 1 < tokens.len() {
+                i += 2;
+                continue;
+            }
+            if t == "search" && i == 0 {
+                i += 1;
+                continue;
+            }
+            cleaned_tokens.push(t.clone());
+            i += 1;
+        }
+
+        if cleaned_tokens.is_empty() {
+            None
+        } else {
+            Some(cleaned_tokens.join(" "))
+        }
+    }
+}
+
 
 fn print_help() {
     println!(r#"
@@ -124,7 +193,6 @@ struct LsItem {
     is_dir: bool,
     type_str: String,
     icon: &'static str,
-    size_bytes: u64,
     size_formatted: String,
     mtime_formatted: String,
 }
@@ -178,11 +246,11 @@ pub fn run_cli_ls(target_dir: &Path) {
             is_dir,
             type_str: ext,
             icon,
-            size_bytes: size,
             size_formatted,
             mtime_formatted,
         });
     }
+
 
     // 目录优先，其次按名称不区分大小写排序
     items.sort_by(|a, b| {
@@ -388,8 +456,15 @@ fn run_cli_search(query: &str, limit: usize, json_mode: bool, path_only: bool) {
                 line_trimmed.to_string()
             };
 
-            println!("{:<4} {:<45} {:<8} {}", idx + 1, path_truncated, m.line_number, snippet);
+            let line_display = if m.line_number == 0 {
+                "NAME".to_string()
+            } else {
+                m.line_number.to_string()
+            };
+
+            println!("{:<4} {:<45} {:<8} {}", idx + 1, path_truncated, line_display, snippet);
         }
+
 
         println!("{}", "-".repeat(110));
         println!("📊 检索统计: 共命中 {} 处匹配 (显示前 {} 条)", content_resp.total_matches, content_resp.matches.len().min(limit));
