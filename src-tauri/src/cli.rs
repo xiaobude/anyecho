@@ -91,8 +91,27 @@ pub fn run_cli(args: &[String]) {
     }
 }
 
+pub fn parse_args_to_query(args: &[String]) -> String {
+    if args.is_empty() {
+        return String::new();
+    }
+    let slice = if args.len() > 1 && (args[0].ends_with(".exe") || args[0].ends_with("anyecho")) {
+        &args[1..]
+    } else {
+        args
+    };
+    let mut parts = Vec::new();
+    for arg in slice {
+        if arg.starts_with("--") || arg.starts_with("-") {
+            continue;
+        }
+        parts.push(arg.clone());
+    }
+    parts.join(" ")
+}
+
 #[cfg(windows)]
-fn get_raw_cli_query() -> Option<String> {
+pub fn get_raw_cli_query() -> Option<String> {
     use std::ffi::OsString;
     use std::os::windows::ffi::OsStringExt;
     extern "system" {
@@ -154,6 +173,17 @@ fn get_raw_cli_query() -> Option<String> {
         }
     }
 }
+
+#[cfg(not(windows))]
+pub fn get_raw_cli_query() -> Option<String> {
+    let args: Vec<String> = std::env::args().skip(1).collect();
+    if args.is_empty() {
+        None
+    } else {
+        Some(parse_args_to_query(&args))
+    }
+}
+
 
 
 fn print_help() {

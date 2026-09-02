@@ -338,10 +338,16 @@ pub fn start_doc_indexing(state: tauri::State<'_, AppState>) -> Result<String, S
 }
 
 
+#[tauri::command]
+pub fn get_initial_query(state: tauri::State<'_, AppState>) -> Option<String> {
+    state.initial_query.lock().unwrap().take()
+}
+
 fn sync_exclusions_to_engine(state: &tauri::State<'_, AppState>) {
     if let Ok(exclusions) = state.db.get_exclusions() {
         let patterns: Vec<String> = exclusions.iter().map(|e| e.pattern.clone()).collect();
         state.engine.write().set_exclusions(patterns);
     }
 }
+
 

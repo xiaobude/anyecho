@@ -31,6 +31,7 @@ pub struct AppState {
     pub knowledge_folders: Mutex<Vec<String>>,
     pub db: Arc<Database>,
     pub doc_cache: Arc<DocCache>,
+    pub initial_query: Mutex<Option<String>>,
 }
 
 
@@ -41,9 +42,8 @@ pub struct ScanResult {
 }
 
 pub fn run() {
-    if cli::handle_cli_args() {
-        return;
-    }
+    let initial_query = cli::get_raw_cli_query();
+
 
     let log_dir = {
 
@@ -128,6 +128,19 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            tracing::info!("Single instance awakened with args: {:?}", argv);
+            use tauri::Emitter;
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.show();
+                let _ = window.set_focus();
+                let _ = window.unminimize();
+            }
+            let query = cli::parse_args_to_query(&argv);
+            if !query.is_empty() {
+                let _ = app.emit("open-query", query);
+            }
+        }))
         .setup(|app| {
             system::ensure_cli_in_path();
 
@@ -172,6 +185,7 @@ pub fn run() {
             knowledge_folders: Mutex::new(knowledge_folders),
             db,
             doc_cache,
+            initial_query: Mutex::new(initial_query),
         })
         .invoke_handler(tauri::generate_handler![
             commands::start_scan,
@@ -185,6 +199,7 @@ pub fn run() {
             commands::get_content_preview,
             commands::get_doc_index_stats,
             commands::start_doc_indexing,
+            commands::get_initial_query,
             commands::add_knowledge_folder,
             commands::remove_knowledge_folder,
             commands::get_knowledge_folders,
@@ -202,5 +217,6 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
+
 }
 

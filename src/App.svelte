@@ -553,7 +553,26 @@
         console.error('Failed to load language setting:', e);
       }
 
-      // 2. 检查索引状态
+      // 2. 检查是否有命令行传入的初始搜索词
+      try {
+        const initQ = await invoke<string | null>('get_initial_query');
+        if (initQ && initQ.trim()) {
+          query = initQ.trim();
+        }
+      } catch (e) {
+        console.error('Failed to get initial query:', e);
+      }
+
+      // 3. 监听多开实例传入的即时搜索词
+      const unlistenOpenQuery = await listen<string>('open-query', (event) => {
+        if (event.payload && event.payload.trim()) {
+          query = event.payload.trim();
+          handleQueryChange();
+          searchInputRef?.focus();
+        }
+      });
+
+      // 4. 检查索引状态
       try {
         const status = await invoke<ScanResult | null>('get_scan_status');
         if (status && status.count > 0) {
@@ -569,7 +588,7 @@
         startScan();
       }
 
-      // 3. 文档索引状态轮询
+      // 5. 文档索引状态轮询
       const fetchDocStats = async () => {
         try {
           docStats = await invoke<DocIndexStats>('get_doc_index_stats');
@@ -587,9 +606,11 @@
         clearInterval(statsInterval);
         unlistenBatch?.();
         unlistenDone?.();
+        unlistenOpenQuery();
       };
     })();
   });
+
 
 </script>
 
