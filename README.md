@@ -56,22 +56,39 @@
 
 ## 🔍 搜索查询语法与正则表达式速查
 
-凡响 AnyEcho 在桌面搜索框与终端 `ae` 命令行中支持极其丰富的高级过滤与正则语法：
+凡响 AnyEcho 在桌面搜索框与终端 `ae` 命令行中支持极其丰富的高级过滤、类别筛选与正则语法：
 
 | 语法类型 | 查询示例 | 说明与匹配行为 |
 | :--- | :--- | :--- |
 | **多关键字并集** | `qwen 27b` | 同时包含 `qwen` 和 `27b` 的文件（空格分隔） |
 | **中文全拼 / 缩写** | `fx` 或 `fanxiang` | 智能匹配包含汉字 **「凡响」** 的文件或文件夹 |
+| **拼音组合检索** | `type:doc chengjian` | 在文档大类中，按拼音秒搜 **「王承建 简历」** 等相关文件 |
 | **正则表达式** | `regex:^qwen.*\.gguf$` | 匹配以 `qwen` 开头且扩展名为 `.gguf` 的文件 |
 | **正则表达式缩写** | `r:(nvfp4\|fp8\|awq)` | 匹配名称中含有 `nvfp4`、`fp8` 或 `awq` 的任意文件 |
 | **日期正则匹配** | `regex:\d{4}-\d{2}-\d{2}` | 匹配文件名中含有 `2026-09-01` 格式日期的文件 |
-| **AI 模型专属筛选** | `type:ai` 或 `kind:ai` | 一键定位所有 AI 模型权重（gguf, safetensors, pt, nvfp4...） |
-| **文件类别筛选** | `type:doc` / `type:pic` / `type:video` / `type:code` | 按文档、图片、视频、源代码等宏观分类快速过滤 |
-| **扩展名指定** | `ext:pdf` 或 `ext:docx;xlsx` | 仅检索指定格式的文件 |
+| **扩展名指定** | `ext:pdf` 或 `ext:docx;xlsx` | 仅检索指定扩展名的文件 |
 | **文件大小区间** | `size:>10MB` / `size:<500KB` / `size:1GB-5GB` | 精准匹配指定容量大小范围内的文件 |
 | **路径限定搜索** | `D:\AI\` 或 `path:models` | 仅在指定驱动器或指定路径树下进行搜索 |
 | **通配符模糊匹配** | `*qwen*.gguf` 或 `IMG_2026???.jpg` | 使用 `*` 与 `?` 通配符进行匹配 |
 | **全文内容检索** | `content:nvfp4` | 进入内容检索模式，多线程实时扫描文件正文内容 |
+
+### 📂 类别筛选宏指令 (`type:` / `kind:`)
+
+支持在关键词前后任意添加分类语法，系统会自动将其映射到对应的扩展名集合：
+
+| 类别指令 | 快捷别名 | 涵盖格式与范围 | 查询示例 |
+| :--- | :--- | :--- | :--- |
+| **`type:doc`** | `doc:`, `kind:doc`, `docs:` | 文档格式 (`.doc`, `.docx`, `.pdf`, `.txt`, `.md`, `.xls`, `.xlsx`, `.csv`, `.ppt`, `.pptx`, `.wps`, `.rtf`, `.odt`, `.epub`, `.log`, `.tex`) | `type:doc 承建` |
+| **`type:ai`** | `ai:`, `kind:ai`, `model:` | AI 模型与权重 (`.gguf`, `.safetensors`, `.pt`, `.pth`, `.onnx`, `.bin`, `.ckpt`, `.tflite`, `.engine`, `.trt`, `.nvfp4`, `.fp8`, `.awq`, `.gptq`) | `type:ai qwen` |
+| **`type:image`** | `pic:`, `kind:image`, `img:` | 图片格式 (`.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.svg`, `.ico`, `.bmp`, `.tiff`, `.psd`, `.raw`, `.heic`) | `type:pic 截图` |
+| **`type:video`** | `video:`, `kind:video`, `movie:` | 视频媒体 (`.mp4`, `.mkv`, `.avi`, `.mov`, `.wmv`, `.flv`, `.webm`, `.m4v`, `.rmvb`, `.ts`) | `type:video 2026` |
+| **`type:audio`** | `audio:`, `kind:audio`, `music:` | 音频音乐 (`.mp3`, `.flac`, `.wav`, `.aac`, `.ogg`, `.m4a`, `.wma`, `.ape`, `.mid`) | `type:audio live` |
+| **`type:code`** | `code:`, `kind:code`, `src:` | 源代码工程 (`.rs`, `.ts`, `.js`, `.py`, `.c`, `.cpp`, `.go`, `.java`, `.html`, `.css`, `.svelte`, `.vue`, `.json`, `.sql`, `.sh`, `.bat`, `.ps1`) | `type:code main` |
+| **`type:app`** | `app:`, `kind:app`, `exe:` | 可执行与应用 (`.exe`, `.msi`, `.bat`, `.cmd`, `.ps1`, `.lnk`, `.vbs`, `.jar`) | `type:app chrome` |
+| **`type:archive`** | `zip:`, `kind:archive`, `rar:` | 压缩包归档 (`.zip`, `.rar`, `.7z`, `.tar`, `.gz`, `.bz2`, `.xz`, `.iso`, `.cab`) | `type:archive backup` |
+| **`type:folder`** | `dir:`, `folder:`, `kind:dir` | 仅文件夹与目录 | `type:folder models` |
+| **`type:file`** | `file:`, `kind:file` | 仅普通文件（排除文件夹） | `type:file config` |
+
 
 ---
 
