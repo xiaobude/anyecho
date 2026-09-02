@@ -5,18 +5,10 @@ use memmap2::Mmap;
 use rayon::prelude::*;
 use serde::Serialize;
 
+use crate::doc_extractor::{extract_document_text, is_binary_document_ext, is_supported_document_ext};
 use crate::engine::matcher::IndexedFile;
 
-const MAX_CONTENT_SIZE: u64 = 10 * 1024 * 1024;
-
-static TEXT_EXTENSIONS: &[&str] = &[
-    "txt", "md", "rs", "py", "js", "ts", "json", "csv", "xml", "yaml", "yml",
-    "toml", "ini", "cfg", "log", "sh", "bat", "ps1", "html", "css", "svelte",
-    "c", "cpp", "h", "hpp", "go", "java", "vue", "jsx", "tsx", "sql", "r",
-    "rb", "php", "swift", "kt", "lua", "perl", "pm", "dart", "zig", "nim",
-    "hs", "ml", "clj", "scala", "groovy", "dockerfile", "makefile", "cmake",
-    "gitignore", "gitattributes", "editorconfig", "env",
-];
+const MAX_CONTENT_SIZE: u64 = 50 * 1024 * 1024; // 50MB
 
 #[derive(Serialize, Clone, Debug)]
 pub struct ContentMatch {
@@ -52,8 +44,7 @@ pub struct ContentPreview {
 }
 
 pub fn is_text_extension(ext: &str) -> bool {
-    let lower = ext.to_lowercase();
-    TEXT_EXTENSIONS.contains(&lower.as_str())
+    is_supported_document_ext(ext)
 }
 
 pub fn search_content(
@@ -70,7 +61,7 @@ pub fn search_content(
             if f.is_directory {
                 return false;
             }
-            if !is_text_extension(&f.ext) {
+            if !is_supported_document_ext(&f.ext) {
                 return false;
             }
             if f.size > MAX_CONTENT_SIZE {
@@ -123,7 +114,7 @@ pub fn search_content_with_query(
             if f.is_directory {
                 return false;
             }
-            if !is_text_extension(&f.ext) {
+            if !is_supported_document_ext(&f.ext) {
                 return false;
             }
             if f.size > MAX_CONTENT_SIZE {
@@ -160,26 +151,46 @@ pub fn search_content_with_query(
     }
 }
 
-
-fn search_file_content(file: &IndexedFile, keyword_lower: &str) -> Option<Vec<ContentMatch>> {
+pub fn search_file_content(file: &IndexedFile, keyword_lower: &str) -> Option<Vec<ContentMatch>> {
     let path = Path::new(&file.full_path);
     if !path.exists() {
         return None;
     }
 
+    // 1. 若为二进制 Office / PDF / EPUB 文档，使用专用提取引擎
+    if is_binary_document_ext(&file.ext) {
+        let extracted = extract_document_text(path)?;
+        let mut matches = Vec::new();
+        for (line_idx, line) in extracted.text.lines().enumerate() {
+            let line_lower = line.to_lowercase();
+            if let Some(pos) = line_lower.find(keyword_lower) {
+                matches.push(ContentMatch {
+                    file_path: file.full_path.clone(),
+                    file_name: file.name.clone(),
+                    line_number: (line_idx + 1) as u32,
+                    line_text: line.trim().to_string(),
+                    match_start: pos,
+                    match_end: pos + keyword_lower.len(),
+                });
+            }
+        }
+        return if matches.is_empty() { None } else { Some(matches) };
+    }
+
+    // 2. 若为纯文本 / 代码文件，使用极速 mmap 内存映射
     let file_handle = fs::File::open(path).ok()?;
     let metadata = file_handle.metadata().ok()?;
 
-    if metadata.len() > MAX_CONTENT_SIZE {
-        return None;
-    }
-
-    if metadata.len() == 0 {
+    if metadata.len() > MAX_CONTENT_SIZE || metadata.len() == 0 {
         return None;
     }
 
     let mmap = unsafe { Mmap::map(&file_handle) }.ok()?;
-    let content = std::str::from_utf8(&mmap).ok()?;
+    let content = if let Ok(s) = std::str::from_utf8(&mmap) {
+        s
+    } else {
+        return None;
+    };
 
     let mut matches = Vec::new();
 
@@ -190,7 +201,7 @@ fn search_file_content(file: &IndexedFile, keyword_lower: &str) -> Option<Vec<Co
                 file_path: file.full_path.clone(),
                 file_name: file.name.clone(),
                 line_number: (line_idx + 1) as u32,
-                line_text: line.to_string(),
+                line_text: line.trim().to_string(),
                 match_start: pos,
                 match_end: pos + keyword_lower.len(),
             });
@@ -210,7 +221,13 @@ pub fn get_content_preview(file_path: &str, keyword: &str, context_lines: u32) -
         return None;
     }
 
-    let content = fs::read_to_string(path).ok()?;
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+    let content = if is_binary_document_ext(ext) {
+        extract_document_text(path).map(|d| d.text)?
+    } else {
+        fs::read_to_string(path).ok()?
+    };
+
     let keyword_lower = keyword.to_lowercase();
     let lines: Vec<&str> = content.lines().collect();
 
@@ -257,34 +274,34 @@ mod tests {
 
     #[test]
     fn test_text_extensions() {
-        assert!(is_text_extension("rs"));
-        assert!(is_text_extension("md"));
         assert!(is_text_extension("txt"));
-        assert!(is_text_extension("json"));
+        assert!(is_text_extension("md"));
+        assert!(is_text_extension("rs"));
+        assert!(is_text_extension("docx"));
+        assert!(is_text_extension("pdf"));
+        assert!(is_text_extension("xlsx"));
+        assert!(is_text_extension("pptx"));
         assert!(!is_text_extension("exe"));
-        assert!(!is_text_extension("iso"));
+        assert!(!is_text_extension("dll"));
     }
 
     #[test]
     fn test_content_search_and_preview() {
-        let temp_dir = std::env::temp_dir().join("anyecho_test_content");
-        let _ = fs::create_dir_all(&temp_dir);
-        let test_file = temp_dir.join("sample.txt");
-        fs::write(
-            &test_file,
-            "Line 1: AnyEcho search engine\nLine 2: High performance file retrieval\nLine 3: Everything alternative for Windows\n",
-        ).unwrap();
+        let temp_dir = std::env::temp_dir();
+        let test_file = temp_dir.join("anyecho_test_search.txt");
+        let content = "First line\nSecond line with keyword target\nThird line\nFourth line with target again\nFifth line";
+        fs::write(&test_file, content).unwrap();
 
         let indexed = IndexedFile {
-            name: "sample.txt".to_string(),
-            full_path: test_file.to_string_lossy().to_string(),
-            name_lower: "sample.txt".to_string(),
-            full_path_lower: test_file.to_string_lossy().to_lowercase(),
+            name: "anyecho_test_search.txt".to_string(),
+            full_path: test_file.to_str().unwrap().to_string(),
+            name_lower: "anyecho_test_search.txt".to_string(),
+            full_path_lower: test_file.to_str().unwrap().to_lowercase(),
             pinyin_first: None,
             pinyin_full: None,
             ext: "txt".to_string(),
-            size: 100,
-            mtime: 0,
+            size: content.len() as u64,
+            mtime: 123456789,
             is_directory: false,
             file_attributes: 0,
             frn: 1,
@@ -292,18 +309,14 @@ mod tests {
             volume: 'C',
         };
 
-        let resp = search_content(&[indexed], "Everything", None);
-        assert_eq!(resp.total_matches, 1);
-        assert_eq!(resp.matches[0].line_number, 3);
+        let response = search_content(&[indexed], "target", None);
+        assert_eq!(response.matches.len(), 2);
+        assert_eq!(response.matches[0].line_number, 2);
+        assert_eq!(response.matches[1].line_number, 4);
 
-        let preview = get_content_preview(&test_file.to_string_lossy(), "performance", 1);
-        assert!(preview.is_some());
-        let p = preview.unwrap();
-        assert_eq!(p.keyword, "performance");
-        assert!(!p.lines.is_empty());
+        let preview = get_content_preview(test_file.to_str().unwrap(), "target", 1).unwrap();
+        assert_eq!(preview.lines.len(), 5);
 
-        let _ = fs::remove_file(&test_file);
-        let _ = fs::remove_dir(&temp_dir);
+        let _ = fs::remove_file(test_file);
     }
 }
-

@@ -1,2 +1,78 @@
 qoderclicn --resume 'a9a382d2-a03b-4b7f-9673-720c846fbf33'
 
+
+agy --conversation=fbf42873-3095-4e39-8f20-8725968d8853
+
+
+极速 · 轻量 · 现代化 · 专为 Windows 与 AI 时代打造的文件与内容全能检索利器
+
+凡响 (AnyEcho) 
+一款基于 **Tauri v2 + Svelte 5 + Rust** 构建的下一代 Windows 桌面超级搜索利器与终端工具。不仅拥有媲美 Everything 的底层 NTFS USN Journal 毫秒级全盘扫描能力，更针对 **AI 时代大模型资产管理**、**中文全拼/首字母模糊检索**、**高级正则表达式**、**全文内容即时 Grep** 以及 **超级 `ls` 终端增强** 进行了深度重构与打磨。
+
+---
+
+## ✨ 核心特性
+
+- 🚀 **毫秒级 NTFS USN Journal 极速扫描**
+  - 直接遍历 Windows NTFS 底层 USN 日志，百万级文件全盘初次索引耗时 **< 2 秒**。
+  - 支持非管理员（普通权限）无感降级遍历与跨卷隔离容错。
+- ⚡ **瞬时冷启动快照 (`index_cache.bin`)**
+  - 自动持久化高性能二进制内存快照，下次打开程序仅需 **~80ms** 即可瞬间就绪，无需每次重新扫描全盘。
+- 🤖 **专属 AI 大模型与权重文件分类**
+  - 内置 AI 专属筛选器，一键秒级定位大模型权重：`.gguf`, `.safetensors`, `.pt`, `.pth`, `.onnx`, `.nvfp4`, `.fp8`, `.awq`, `.gptq`, `.ggml`, `.bin`, `.ckpt` 等。
+- 🔤 **全智能中文拼音检索**
+  - 原生支持 **汉字 / 全拼 / 首字母缩写** 实时模糊检索（例如：输入 `fx` 秒搜 `凡响`，输入 `dsk` 搜 `Desktop`）。
+- 🎯 **强大的正则表达式与多条件组合检索**
+  - 支持标准正则表达式（`regex:` / `r:`）、扩展名语法、大小区间、通配符以及多关键字并集查询。
+- 💻 **内置 `ae` 超级终端命令行（Super-ls + 全局搜索）**
+  - **不带参数**：充当现代化超级 `ls`，展示图标、大写类型、易读大小、时间及目录总空间统计。
+  - **带搜索词**：瞬间切换为毫秒级全盘搜索引擎，支持管道与 JSON 输出。
+- 📝 **双模式全文内容检索**
+  - **即时 Grep 检索**：利用多线程并行流式扫描文件内容，关键词命中即时流式输出。
+  - **知识库倒排检索**：基于 Tantivy 引擎对指定目录建立倒排索引，支持大规模代码与文档毫秒级全文检索。
+- 📊 **可调整列宽 & 60FPS 虚拟长列表**
+  - 虚拟列表技术支撑数百万条结果丝滑滚动，零内存暴涨。
+  - 表格表头支持**鼠标拖拽自由调整列宽**（序号、名称、扩展名类型、路径、大小、修改日期）。
+- 📏 **精准文件属性与大小展示**
+  - 视口数据并行动态补全真实文件大小（如 `14.2 GB`, `3.5 MB`, `0 B`）及 `<DIR>` 目录标识。
+- 🌐 **双语国际化 (i18n)**
+  - 界面原生支持 **中文 / 英文 (English)** 实时一键切换，语言设置自动记忆。
+- 🪶 **8MB 极限瘦身纯绿色单文件**
+  - 借助全依赖 LTO、代码剥离、LLVM `opt-level = "z"` 极致体积优化，完整发行版仅 **8.15 MB**，CLI 伴侣仅 **2.74 MB**。
+
+---
+
+## 🔍 搜索查询语法与正则表达式速查
+
+凡响 AnyEcho 在桌面搜索框与终端 `ae` 命令行中支持极其丰富的高级过滤、类别筛选与正则语法：
+
+| 语法类型 | 查询示例 | 说明与匹配行为 |
+| :--- | :--- | :--- |
+| **多关键字并集** | `qwen 27b` | 同时包含 `qwen` 和 `27b` 的文件（空格分隔） |
+| **中文全拼 / 缩写** | `fx` 或 `fanxiang` | 智能匹配包含汉字 **「凡响」** 的文件或文件夹 |
+| **拼音组合检索** | `type:doc chengjian` | 在文档大类中，按拼音秒搜 **「王承建 简历」** 等相关文件 |
+| **正则表达式** | `regex:^qwen.*\.gguf$` | 匹配以 `qwen` 开头且扩展名为 `.gguf` 的文件 |
+| **正则表达式缩写** | `r:(nvfp4\|fp8\|awq)` | 匹配名称中含有 `nvfp4`、`fp8` 或 `awq` 的任意文件 |
+| **日期正则匹配** | `regex:\d{4}-\d{2}-\d{2}` | 匹配文件名中含有 `2026-09-01` 格式日期的文件 |
+| **扩展名指定** | `ext:pdf` 或 `ext:docx;xlsx` | 仅检索指定扩展名的文件 |
+| **文件大小区间** | `size:>10MB` / `size:<500KB` / `size:1GB-5GB` | 精准匹配指定容量大小范围内的文件 |
+| **路径限定搜索** | `D:\AI\` 或 `path:models` | 仅在指定驱动器或指定路径树下进行搜索 |
+| **通配符模糊匹配** | `*qwen*.gguf` 或 `IMG_2026???.jpg` | 使用 `*` 与 `?` 通配符进行匹配 |
+| **全文内容检索** | `content:nvfp4` | 进入内容检索模式，多线程实时扫描文件正文内容 |
+
+### 📂 类别筛选宏指令 (`type:` / `kind:`)
+
+支持在关键词前后任意添加分类语法，系统会自动将其映射到对应的扩展名集合：
+
+| 类别指令 | 快捷别名 | 涵盖格式与范围 | 查询示例 |
+| :--- | :--- | :--- | :--- |
+| **`type:doc`** | `doc:`, `kind:doc`, `docs:` | 文档格式 (`.doc`, `.docx`, `.pdf`, `.txt`, `.md`, `.xls`, `.xlsx`, `.csv`, `.ppt`, `.pptx`, `.wps`, `.rtf`, `.odt`, `.epub`, `.log`, `.tex`) | `type:doc 承建` |
+| **`type:ai`** | `ai:`, `kind:ai`, `model:` | AI 模型与权重 (`.gguf`, `.safetensors`, `.pt`, `.pth`, `.onnx`, `.bin`, `.ckpt`, `.tflite`, `.engine`, `.trt`, `.nvfp4`, `.fp8`, `.awq`, `.gptq`) | `type:ai qwen` |
+| **`type:image`** | `pic:`, `kind:image`, `img:` | 图片格式 (`.png`, `.jpg`, `.jpeg`, `.gif`, `.webp`, `.svg`, `.ico`, `.bmp`, `.tiff`, `.psd`, `.raw`, `.heic`) | `type:pic 截图` |
+| **`type:video`** | `video:`, `kind:video`, `movie:` | 视频媒体 (`.mp4`, `.mkv`, `.avi`, `.mov`, `.wmv`, `.flv`, `.webm`, `.m4v`, `.rmvb`, `.ts`) | `type:video 2026` |
+| **`type:audio`** | `audio:`, `kind:audio`, `music:` | 音频音乐 (`.mp3`, `.flac`, `.wav`, `.aac`, `.ogg`, `.m4a`, `.wma`, `.ape`, `.mid`) | `type:audio live` |
+| **`type:code`** | `code:`, `kind:code`, `src:` | 源代码工程 (`.rs`, `.ts`, `.js`, `.py`, `.c`, `.cpp`, `.go`, `.java`, `.html`, `.css`, `.svelte`, `.vue`, `.json`, `.sql`, `.sh`, `.bat`, `.ps1`) | `type:code main` |
+| **`type:app`** | `app:`, `kind:app`, `exe:` | 可执行与应用 (`.exe`, `.msi`, `.bat`, `.cmd`, `.ps1`, `.lnk`, `.vbs`, `.jar`) | `type:app chrome` |
+| **`type:archive`** | `zip:`, `kind:archive`, `rar:` | 压缩包归档 (`.zip`, `.rar`, `.7z`, `.tar`, `.gz`, `.bz2`, `.xz`, `.iso`, `.cab`) | `type:archive backup` |
+| **`type:folder`** | `dir:`, `folder:`, `kind:dir` | 仅文件夹与目录 | `type:folder models` |
+| **`type:file`** | `file:`, `kind:file` | 仅普通文件（排除文件夹） | `type:file config` |

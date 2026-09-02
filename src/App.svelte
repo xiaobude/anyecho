@@ -3,7 +3,7 @@
   import { invoke } from '@tauri-apps/api/core';
   import { listen } from '@tauri-apps/api/event';
   import { getCurrentWindow } from '@tauri-apps/api/window';
-  import type { SearchItem, SearchResponse, ScanResult, FilterCategory, FilterOption, ContentMatch, ContentPreview, SearchHistoryEntry, ColumnWidths } from './lib/types';
+  import type { SearchItem, SearchResponse, ScanResult, FilterCategory, FilterOption, ContentMatch, ContentPreview, SearchHistoryEntry, ColumnWidths, DocIndexStats } from './lib/types';
   import { dictionaries, type Language } from './lib/i18n';
   import VirtualList from './lib/components/VirtualList.svelte';
   import ContextMenu from './lib/components/ContextMenu.svelte';
@@ -21,6 +21,8 @@
   let scanStatus = $state<'idle' | 'scanning' | 'ready'>('idle');
   let fileCount = $state(0);
   let scanTime = $state(0);
+  let docStats = $state<DocIndexStats | null>(null);
+
 
   let searchResults = $state<SearchItem[]>([]);
   let totalMatches = $state(0);
@@ -553,43 +555,28 @@
         startScan();
       }
 
-      loadSearchHistory();
-
-      unlistenBatch = await listen<ContentMatch[]>('content-search-batch', (event) => {
-        if (isContentSearch) {
-          contentMatches = [...contentMatches, ...event.payload];
+      // 3. 文档索引状态轮询
+      const fetchDocStats = async () => {
+        try {
+          docStats = await invoke<DocIndexStats>('get_doc_index_stats');
+        } catch (e) {
+          // ignore
         }
-      });
+      };
+      fetchDocStats();
+      const statsInterval = setInterval(fetchDocStats, 3000);
 
-      unlistenDone = await listen<any>('content-search-done', (event) => {
-        if (isContentSearch) {
-          contentSearchInProgress = false;
-          contentTotalMatches = event.payload.total_matches;
-          contentFilesSearched = event.payload.files_searched;
-          contentSearchTimeUs = event.payload.search_time_us;
-        }
-      });
+      window.addEventListener('keydown', handleGlobalKeyDown);
 
-      try {
-        isSpotlight = await appWindow.isAlwaysOnTop();
-      } catch {}
-
-      await appWindow.onFocusChanged(({ payload: focused }: { payload: boolean }) => {
-        if (!focused && isSpotlight) {
-          appWindow.hide();
-        }
-      });
-
+      return () => {
+        window.removeEventListener('keydown', handleGlobalKeyDown);
+        clearInterval(statsInterval);
+        unlistenBatch?.();
+        unlistenDone?.();
+      };
     })();
-
-    window.addEventListener('keydown', handleGlobalKeyDown);
-
-    return () => {
-      window.removeEventListener('keydown', handleGlobalKeyDown);
-      unlistenBatch?.();
-      unlistenDone?.();
-    };
   });
+
 </script>
 
 <div class="flex flex-col h-screen bg-gray-950 text-gray-100 font-sans overflow-hidden select-none {isSpotlight ? 'bg-opacity-95 backdrop-blur-xl' : ''}">
@@ -919,7 +906,19 @@
           </span>
         {/if}
       {/if}
+
+      {#if docStats && docStats.total_indexed > 0}
+        <span class="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-full bg-blue-950/60 border border-blue-800/40 text-[10px] text-blue-300 font-mono" title="SQLite 文档全文索引库">
+          <span>📖</span>
+          {#if docStats.is_indexing}
+            <span class="animate-pulse">文档索引中 {docStats.total_indexed.toLocaleString()} / {docStats.total_candidates.toLocaleString()}</span>
+          {:else}
+            <span>文档库 {docStats.total_indexed.toLocaleString()} 篇</span>
+          {/if}
+        </span>
+      {/if}
     </div>
+
 
     <div class="flex-1 text-center truncate px-4 text-gray-500">
       {#if isContentSearch && contentMatches[contentSelectedIndex]}

@@ -90,3 +90,10 @@ export interface ExclusionRule {
   is_regex: boolean;
   created_at: number;
 }
+
+export interface DocIndexStats {
+  total_indexed: number;
+  total_candidates: number;
+  is_indexing: boolean;
+}
+

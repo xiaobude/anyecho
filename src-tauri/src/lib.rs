@@ -1,6 +1,8 @@
 pub mod cli;
 mod commands;
 pub mod content_search;
+pub mod doc_cache;
+pub mod doc_extractor;
 pub mod engine;
 pub mod knowledge_index;
 mod mft_enum;
@@ -17,6 +19,7 @@ use tauri::Manager;
 use tracing_appender::rolling;
 use tracing_subscriber::{fmt, EnvFilter};
 
+use crate::doc_cache::DocCache;
 use crate::engine::{SearchEngine, SharedEngine};
 use crate::persistence::Database;
 use crate::usn_monitor::UsnMonitorManager;
@@ -27,7 +30,9 @@ pub struct AppState {
     pub monitor: Mutex<Option<Arc<UsnMonitorManager>>>,
     pub knowledge_folders: Mutex<Vec<String>>,
     pub db: Arc<Database>,
+    pub doc_cache: Arc<DocCache>,
 }
+
 
 #[derive(serde::Serialize, Clone, Debug)]
 pub struct ScanResult {
@@ -82,6 +87,14 @@ pub fn run() {
         }
     }
 
+    let doc_cache = match DocCache::new() {
+        Ok(dc) => Arc::new(dc),
+        Err(e) => {
+            tracing::error!("Failed to initialize doc cache: {}", e);
+            panic!("Doc cache initialization failed: {e}");
+        }
+    };
+
     let mut initial_scan_result = None;
     let snapshot_path = persistence::get_snapshot_path();
     if snapshot_path.exists() {
@@ -93,6 +106,17 @@ pub fn run() {
                     count,
                     time_ms: 80,
                 });
+                // 启动低优先级后台静默文档文本索引构建
+                let engine_clone = engine.clone();
+                doc_cache.clone().start_background_indexer(move || {
+                    let eng = engine_clone.read();
+                    eng.files()
+                        .iter()
+                        .filter(|f| !f.is_directory && crate::doc_extractor::is_supported_document_ext(&f.ext))
+                        .map(|f| (f.full_path.clone(), f.mtime, f.size))
+                        .collect()
+                });
+
             }
             Ok(_) => {}
             Err(e) => {
@@ -102,14 +126,11 @@ pub fn run() {
     }
 
     tauri::Builder::default()
-
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(|app| {
             let handle = app.handle().clone();
-
             tray::setup_tray(&handle).unwrap_or_else(|e| {
-
                 tracing::error!("Failed to setup tray: {}", e);
             });
 
@@ -131,7 +152,6 @@ pub fn run() {
             });
 
             tracing::info!("Global shortcut Alt+Space registered");
-
             Ok(())
         })
         .on_window_event(|window, event| {
@@ -148,8 +168,8 @@ pub fn run() {
             monitor: Mutex::new(None),
             knowledge_folders: Mutex::new(knowledge_folders),
             db,
+            doc_cache,
         })
-
         .invoke_handler(tauri::generate_handler![
             commands::start_scan,
             commands::get_scan_status,
@@ -160,6 +180,8 @@ pub fn run() {
             commands::get_monitor_status,
             commands::search_content,
             commands::get_content_preview,
+            commands::get_doc_index_stats,
+            commands::start_doc_indexing,
             commands::add_knowledge_folder,
             commands::remove_knowledge_folder,
             commands::get_knowledge_folders,
@@ -178,3 +200,4 @@ pub fn run() {
         .run(tauri::generate_context!())
         .expect("error while running tauri application");
 }
+

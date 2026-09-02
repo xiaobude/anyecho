@@ -309,9 +309,31 @@ pub fn get_exclusions(
     state.db.get_exclusions()
 }
 
+#[tauri::command]
+pub fn get_doc_index_stats(state: tauri::State<'_, AppState>) -> crate::doc_cache::DocIndexStats {
+    state.doc_cache.get_stats()
+}
+
+#[tauri::command]
+pub fn start_doc_indexing(state: tauri::State<'_, AppState>) -> Result<String, String> {
+    let engine = state.engine.clone();
+    let cache = state.doc_cache.clone();
+    cache.start_background_indexer(move || {
+        let eng = engine.read();
+        eng.files()
+            .iter()
+            .filter(|f| !f.is_directory && crate::doc_extractor::is_supported_document_ext(&f.ext))
+            .map(|f| (f.full_path.clone(), f.mtime, f.size))
+            .collect()
+    });
+    Ok("Document indexing initiated".to_string())
+}
+
+
 fn sync_exclusions_to_engine(state: &tauri::State<'_, AppState>) {
     if let Ok(exclusions) = state.db.get_exclusions() {
         let patterns: Vec<String> = exclusions.iter().map(|e| e.pattern.clone()).collect();
         state.engine.write().set_exclusions(patterns);
     }
 }
+

@@ -366,9 +366,10 @@ fn run_cli_search(query: &str, limit: usize, json_mode: bool, path_only: bool) {
         }
 
         println!();
-        println!("⚡ 凡响 AnyEcho | 文本内容检索: \"{}\" | 命中: {} 处匹配 (扫描 {} 个文本文件, 耗时: {:.2} ms)", 
+        println!("⚡ 凡响 AnyEcho | 文档/文本内容检索: \"{}\" | 命中: {} 处匹配 (扫描 {} 个文档/文件, 耗时: {:.2} ms)", 
             keyword, content_resp.total_matches, content_resp.files_searched, search_ms);
         println!("{}", "-".repeat(110));
+
         println!("{:<4} {:<45} {:<8} {}", "#", "文件路径 (File)", "行号", "匹配行内容片段 (Snippet)");
         println!("{}", "-".repeat(110));
 

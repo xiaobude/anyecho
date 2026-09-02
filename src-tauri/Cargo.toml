@@ -48,6 +48,10 @@ memmap2 = "0.9"
 tantivy = "0.22"
 rusqlite = { version = "0.31", features = ["bundled"] }
 bincode = "1.3"
+zip = { version = "2.2", default-features = false, features = ["deflate"] }
+lopdf = { version = "0.34", default-features = false, features = ["nom_parser"] }
+
+
 
 [profile.release]
 opt-level = "z"        # 极致体积优化 (Optimize for size)
