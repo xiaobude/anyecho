@@ -8,8 +8,13 @@
     "build": "vite build",
     "preview": "vite preview",
     "check": "svelte-check --tsconfig ./tsconfig.json",
-    "tauri": "tauri"
+    "tauri": "tauri",
+    "deploy": "node scripts/deploy.mjs",
+    "build:ae": "cargo build --release --manifest-path src-tauri/Cargo.toml --bin ae",
+    "build:all": "tauri build && npm run build:ae && npm run deploy",
+    "release": "npm run build:all"
   },
+
   "devDependencies": {
     "@sveltejs/vite-plugin-svelte": "^5.0.0",
     "@tauri-apps/cli": "^2",
