@@ -29,8 +29,10 @@ pub struct SearchResponse {
     pub items: Vec<SearchItemDto>,
     pub total_matches: usize,
     pub total_files: usize,
+    pub total_bytes: u64,
     pub search_time_us: u64,
 }
+
 
 pub struct SearchEngine {
     files: Vec<IndexedFile>,
@@ -144,10 +146,16 @@ impl SearchEngine {
                 Vec::new()
             };
 
+            let total_bytes: u64 = filtered
+                .par_iter()
+                .map(|f| if f.is_directory { 0 } else { f.size })
+                .sum();
+
             return SearchResponse {
                 items,
                 total_matches,
                 total_files: self.files.len(),
+                total_bytes,
                 search_time_us: start.elapsed().as_micros() as u64,
             };
         }
@@ -171,6 +179,14 @@ impl SearchEngine {
             .collect();
 
         let total_matches = matching_indices.len();
+        let total_bytes: u64 = matching_indices
+            .par_iter()
+            .map(|&idx| {
+                let f = &self.files[idx];
+                if f.is_directory { 0 } else { f.size }
+            })
+            .sum();
+
         let slice_end = (offset + limit).min(total_matches);
 
         let items = if offset < total_matches {
@@ -182,13 +198,14 @@ impl SearchEngine {
             Vec::new()
         };
 
-
         SearchResponse {
             items,
             total_matches,
             total_files: self.files.len(),
+            total_bytes,
             search_time_us: start.elapsed().as_micros() as u64,
         }
+
     }
 
     pub fn total_count(&self) -> usize {

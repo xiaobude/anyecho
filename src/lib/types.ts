@@ -11,8 +11,10 @@ export interface SearchResponse {
   items: SearchItem[];
   total_matches: number;
   total_files: number;
+  total_bytes: number;
   search_time_us: number;
 }
+
 
 export interface ScanResult {
   count: number;

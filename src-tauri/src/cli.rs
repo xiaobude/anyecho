@@ -352,13 +352,13 @@ fn run_cli_search(query: &str, limit: usize, json_mode: bool, path_only: bool) {
     }
 
     // Formatted Table Output
+    let total_size_str = format_size(response.total_bytes, false);
     println!();
-    println!("⚡ 凡响 AnyEcho | 检索: \"{}\" | 命中: {} 个 (显示前 {} 条, 耗时: {:.2} ms)", 
-        query, response.total_matches, response.items.len(), search_ms);
+    println!("⚡ 凡响 AnyEcho | 检索: \"{}\" | 命中: {} 个 (共 {}, 显示前 {} 条, 耗时: {:.2} ms)", 
+        query, response.total_matches, total_size_str, response.items.len(), search_ms);
     println!("{}", "-".repeat(95));
     println!("{:<4} {:<32} {:<10} {:<10} {}", "#", "名称 (Name)", "类型", "大小", "路径 (Path)");
     println!("{}", "-".repeat(95));
-
 
     for (idx, item) in response.items.iter().enumerate() {
         let name_truncated = if item.name.chars().count() > 30 {
@@ -382,7 +382,9 @@ fn run_cli_search(query: &str, limit: usize, json_mode: bool, path_only: bool) {
     }
 
     println!("{}", "-".repeat(95));
+    println!("📊 检索统计: 命中 {} 个项目 (总大小: {})", response.total_matches, total_size_str);
     println!();
+
 }
 
 fn format_size(bytes: u64, is_dir: bool) -> String {

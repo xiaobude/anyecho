@@ -11,6 +11,8 @@
   import SettingsPanel from './lib/components/SettingsPanel.svelte';
   import Toast from './lib/components/Toast.svelte';
 
+  import { formatBytes } from './lib/utils/format';
+
   let currentLang = $state<Language>('zh');
   const t = $derived(dictionaries[currentLang]);
 
@@ -22,8 +24,10 @@
 
   let searchResults = $state<SearchItem[]>([]);
   let totalMatches = $state(0);
+  let totalBytes = $state(0);
   let searchTimeUs = $state(0);
   let selectedIndex = $state(0);
+
 
   // Content search states
   let isContentSearch = $derived(query.toLowerCase().startsWith('content:') || query.toLowerCase().startsWith('c:'));
@@ -175,6 +179,7 @@
         });
         searchResults = res.items;
         totalMatches = res.total_matches;
+        totalBytes = res.total_bytes || 0;
         searchTimeUs = res.search_time_us;
         selectedIndex = 0;
       } catch (e) {
@@ -227,11 +232,13 @@
       });
       searchResults = res.items;
       totalMatches = res.total_matches;
+      totalBytes = res.total_bytes || 0;
       searchTimeUs = res.search_time_us;
       selectedIndex = 0;
     } catch (e) {
       console.error('Search failed:', e);
     }
+
   }
 
   function handleQueryChange() {
@@ -901,7 +908,11 @@
       {:else}
         <span>
           {t.statusMatched} <strong class="text-gray-200 tabular-nums">{totalMatches.toLocaleString()}</strong> / {fileCount.toLocaleString()} {t.statusFiles}
+          {#if totalBytes > 0}
+            <span class="text-gray-400 font-mono ml-1.5">({formatBytes(totalBytes)})</span>
+          {/if}
         </span>
+
         {#if searchTimeUs > 0}
           <span class="px-1.5 py-0.5 bg-gray-800 text-emerald-400 rounded text-[10px] font-mono border border-gray-700/50">
             ⚡ {(searchTimeUs / 1000).toFixed(2)} ms
