@@ -1,4 +1,6 @@
 use std::env;
+use std::fs;
+use std::path::Path;
 use std::time::Instant;
 use crate::engine::SearchEngine;
 use crate::persistence::{get_snapshot_path, Database};
@@ -22,7 +24,7 @@ pub fn handle_cli_args() -> bool {
 
 pub fn run_cli(args: &[String]) {
     if args.is_empty() {
-        print_help();
+        run_cli_ls(Path::new("."));
         return;
     }
 
@@ -39,6 +41,12 @@ pub fn run_cli(args: &[String]) {
             run_cli_scan();
         }
         _ => {
+            // If the argument is an existing directory (e.g. `ae .`, `ae ..`, `ae src`, `ae D:\AI`), run super ls!
+            if args.len() == 1 && (first == "." || first == ".." || Path::new(first).is_dir()) {
+                run_cli_ls(Path::new(first));
+                return;
+            }
+
             let mut limit = 50;
             let mut json_mode = false;
             let mut path_only = false;
@@ -67,35 +75,210 @@ pub fn run_cli(args: &[String]) {
             }
 
             let query = query_parts.join(" ");
-            run_cli_search(&query, limit, json_mode, path_only);
+            if query.trim().is_empty() {
+                run_cli_ls(Path::new("."));
+            } else {
+                run_cli_search(&query, limit, json_mode, path_only);
+            }
         }
     }
 }
 
 fn print_help() {
     println!(r#"
-⚡ 凡响 AnyEcho - 超高速 Windows 桌面级文件搜索利器 (CLI 命令行模式)
+⚡ 凡响 AnyEcho - 超级终端命令行利器 (CLI / Super-ls Mode)
 
 使用方式 (Usage):
-    ae <query> [options]
-    anyecho <query> [options]
-    anyecho search <query> [options]
+    ae                          # 【超级 ls 模式】不带参数列出当前目录所有文件与目录
+    ae <dir_path>               # 【超级 ls 模式】列出指定目录的文件 (如: ae src, ae ..)
+    ae <query> [options]        # 【全盘极速搜索】毫秒级全盘模糊/拼音/类型搜索
+    anyecho <query> [options]   # 同样支持通过 anyecho 主程序调用
 
 常用查询示例 (Examples):
+    ae                          # 查看当前目录列表 (带图标、类型、大小、时间)
     ae qwen                     # 模糊检索包含 qwen 的所有文件
-    ae fx                       # 中文拼音首字母缩写检索 (匹配 '凡响')
-    ae type:ai                  # 检索所有 AI 模型权重 (gguf, safetensors, pt, nvfp4...)
+    ae fx                       # 中文拼音首字母检索 (匹配 '凡响')
+    ae type:ai                  # 检索所有 AI 模型与权重 (gguf, safetensors, pt, nvfp4...)
     ae ext:pdf size:>10MB       # 检索大于 10MB 的 PDF 文档
     ae "D:\AI\*.md"             # 检索指定路径下的 Markdown 笔记
 
 选项 (Options):
-    -n, --limit <NUM>           限制返回结果条数 (默认: 50)
+    -n, --limit <NUM>           限制全局搜索结果条数 (默认: 50)
     -p, --path                  仅输出完整文件绝对路径 (便于管道传递)
     -j, --json                  以 JSON 格式输出结果
-    scan, --scan                立即触发重新扫描所有驱动器并更新快照
-    -h, --help                  显示帮助信息
+    scan, --scan                立即重新扫描全盘 NTFS 日志并更新快照
+    -h, --help                  显示此帮助信息
     -v, --version               显示版本号
 "#);
+}
+
+struct LsItem {
+    name: String,
+    is_dir: bool,
+    type_str: String,
+    icon: &'static str,
+    size_bytes: u64,
+    size_formatted: String,
+    mtime_formatted: String,
+}
+
+pub fn run_cli_ls(target_dir: &Path) {
+    let canonical = fs::canonicalize(target_dir).unwrap_or_else(|_| target_dir.to_path_buf());
+    let display_path = canonical.to_string_lossy().replace(r"\\?\", "");
+
+    let read_res = fs::read_dir(target_dir);
+    let entries = match read_res {
+        Ok(e) => e,
+        Err(err) => {
+            eprintln!("❌ 无法读取目录 {}: {}", display_path, err);
+            return;
+        }
+    };
+
+    let mut items: Vec<LsItem> = Vec::new();
+    let mut total_files = 0usize;
+    let mut total_dirs = 0usize;
+    let mut total_bytes = 0u64;
+
+    for entry in entries.flatten() {
+        let name = entry.file_name().to_string_lossy().to_string();
+        let metadata = entry.metadata().ok();
+        let is_dir = metadata.as_ref().map(|m| m.is_dir()).unwrap_or(false);
+        let size = if is_dir { 0 } else { metadata.as_ref().map(|m| m.len()).unwrap_or(0) };
+        let mtime = metadata.and_then(|m| m.modified().ok());
+
+        let ext = if is_dir {
+            "DIR".to_string()
+        } else {
+            name.rsplit_once('.')
+                .map(|(_, e)| e.to_uppercase())
+                .unwrap_or_else(|| "-".to_string())
+        };
+
+        let icon = get_file_icon(&ext, is_dir);
+        let size_formatted = format_size(size, is_dir);
+        let mtime_formatted = mtime.map(format_system_time).unwrap_or_else(|| "-".to_string());
+
+        if is_dir {
+            total_dirs += 1;
+        } else {
+            total_files += 1;
+            total_bytes += size;
+        }
+
+        items.push(LsItem {
+            name,
+            is_dir,
+            type_str: ext,
+            icon,
+            size_bytes: size,
+            size_formatted,
+            mtime_formatted,
+        });
+    }
+
+    // 目录优先，其次按名称不区分大小写排序
+    items.sort_by(|a, b| {
+        match (a.is_dir, b.is_dir) {
+            (true, false) => std::cmp::Ordering::Less,
+            (false, true) => std::cmp::Ordering::Greater,
+            _ => a.name.to_lowercase().cmp(&b.name.to_lowercase()),
+        }
+    });
+
+    println!();
+    println!("📂 目录: {}", display_path);
+    println!("{}", "=".repeat(88));
+    println!("{:<4} {:<8} {:<10} {:<20} {}", "#", "类型", "大小", "修改时间", "名称");
+    println!("{}", "-".repeat(88));
+
+    for (idx, item) in items.iter().enumerate() {
+        let display_name = format!("{} {}", item.icon, item.name);
+        println!("{:<4} {:<8} {:<10} {:<20} {}", 
+            idx + 1, 
+            item.type_str, 
+            item.size_formatted, 
+            item.mtime_formatted, 
+            display_name
+        );
+    }
+
+    println!("{}", "-".repeat(88));
+    println!("📊 共计: 📁 {} 个目录, 📄 {} 个文件 (总大小: {})", 
+        total_dirs, total_files, format_size(total_bytes, false));
+    println!();
+}
+
+fn get_file_icon(ext: &str, is_dir: bool) -> &'static str {
+    if is_dir {
+        return "📁";
+    }
+    match ext {
+        "GGUF" | "SAFETENSORS" | "PT" | "PTH" | "ONNX" | "NVFP4" | "FP8" | "AWQ" | "GPTQ" | "GGML" | "BIN" | "CKPT" => "🤖",
+        "DOC" | "DOCX" | "PDF" | "XLS" | "XLSX" | "PPT" | "PPTX" | "CSV" => "📄",
+        "TXT" | "MD" | "LOG" => "📝",
+        "RS" | "TS" | "JS" | "PY" | "C" | "CPP" | "GO" | "JAVA" | "HTML" | "CSS" | "SVELTE" | "VUE" => "💻",
+        "JSON" | "YAML" | "TOML" | "XML" | "INI" | "CONF" | "ENV" => "⚙️",
+        "PNG" | "JPG" | "JPEG" | "GIF" | "WEBP" | "SVG" | "ICO" | "BMP" => "🖼️",
+        "MP4" | "MKV" | "AVI" | "MOV" | "WMV" => "🎬",
+        "MP3" | "FLAC" | "WAV" | "AAC" | "OGG" | "M4A" => "🎵",
+        "ZIP" | "RAR" | "7Z" | "TAR" | "GZ" | "BZ2" => "📦",
+        "EXE" | "MSI" | "BAT" | "CMD" | "PS1" => "⚡",
+        _ => "📄",
+    }
+}
+
+fn format_system_time(st: std::time::SystemTime) -> String {
+    use std::time::UNIX_EPOCH;
+    if let Ok(duration) = st.duration_since(UNIX_EPOCH) {
+        let secs = duration.as_secs() as i64;
+        format_timestamp(secs)
+    } else {
+        "-".to_string()
+    }
+}
+
+fn format_timestamp(timestamp: i64) -> String {
+    if timestamp <= 0 {
+        return "-".to_string();
+    }
+    // Days since Jan 1 1970
+    let mut days = timestamp / 86400;
+    let day_secs = (timestamp % 86400) as u32;
+    let hour = day_secs / 3600;
+    let minute = (day_secs % 3600) / 60;
+    let second = day_secs % 60;
+
+    let mut year = 1970;
+    loop {
+        let leap = is_leap_year(year);
+        let year_days = if leap { 366 } else { 365 };
+        if days < year_days {
+            break;
+        }
+        days -= year_days;
+        year += 1;
+    }
+
+    let leap = is_leap_year(year);
+    let month_days = [
+        31, if leap { 29 } else { 28 }, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31
+    ];
+    let mut month = 1;
+    for &md in &month_days {
+        if days < md {
+            break;
+        }
+        days -= md;
+        month += 1;
+    }
+    let day = days + 1;
+
+    format!("{:04}-{:02}-{:02} {:02}:{:02}:{:02}", year, month, day, hour, minute, second)
+}
+
+fn is_leap_year(year: i64) -> bool {
+    (year % 4 == 0 && year % 100 != 0) || (year % 400 == 0)
 }
 
 fn run_cli_scan() {
