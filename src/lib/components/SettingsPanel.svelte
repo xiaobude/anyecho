@@ -1,7 +1,7 @@
 <script lang="ts">
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { invoke } from '@tauri-apps/api/core';
-  import type { SearchHistoryEntry, Favorite, ExclusionRule } from '../types';
+  import type { SearchHistoryEntry, Favorite, ExclusionRule, DocIndexStats } from '../types';
   import type { Language, Translations } from '../i18n';
 
   let {
@@ -25,15 +25,46 @@
   let knowledgeFolders = $state<string[]>([]);
   let newExclusion = $state('');
   let newKnowledgeFolder = $state('');
+  let docStats = $state<DocIndexStats | null>(null);
+  let pollTimer: any = null;
 
   function switchTab(tab: Tab) {
     activeTab = tab;
     loadTabData(tab);
   }
 
+  async function loadDocStats() {
+    try {
+      docStats = await invoke<DocIndexStats>('get_doc_index_stats');
+      if (docStats?.is_indexing && !pollTimer) {
+        pollTimer = setInterval(loadDocStats, 1000);
+      } else if (!docStats?.is_indexing && pollTimer) {
+        clearInterval(pollTimer);
+        pollTimer = null;
+      }
+    } catch (e) {
+      console.error('Failed to get doc index stats:', e);
+    }
+  }
+
+  async function startDocIndexing() {
+    try {
+      await invoke('start_doc_indexing');
+      await loadDocStats();
+      if (!pollTimer) {
+        pollTimer = setInterval(loadDocStats, 1000);
+      }
+    } catch (e) {
+      console.error('Failed to start doc indexing:', e);
+    }
+  }
+
   async function loadTabData(tab: Tab) {
     try {
       switch (tab) {
+        case 'general':
+          await loadDocStats();
+          break;
         case 'history':
           recentSearches = await invoke<SearchHistoryEntry[]>('get_recent_searches', { limit: 50 });
           break;
@@ -118,6 +149,13 @@
   onMount(() => {
     loadTabData('general');
   });
+
+  onDestroy(() => {
+    if (pollTimer) {
+      clearInterval(pollTimer);
+      pollTimer = null;
+    }
+  });
 </script>
 
 <!-- Backdrop -->
@@ -182,6 +220,56 @@
             </div>
           </div>
 
+          <!-- Document Full-Text Indexing UI Section -->
+          <div class="border-t border-gray-800 pt-4">
+            <div class="flex items-center justify-between py-1 mb-2">
+              <div>
+                <div class="text-sm font-medium text-gray-200 flex items-center gap-2">
+                  <span>📑</span>
+                  <span>{currentLang === 'zh' ? '文档全文索引与缓存 (FTS5)' : 'Full-Text Document Index (FTS5)'}</span>
+                </div>
+                <div class="text-xs text-gray-500 mt-0.5">
+                  {currentLang === 'zh' ? '自动提取 Word、Excel、PPT、PDF 正文并建立 SQLite 倒排索引' : 'Pre-extract Office & PDF text for instant full-text search'}
+                </div>
+              </div>
+              <button
+                onclick={startDocIndexing}
+                disabled={docStats?.is_indexing}
+                class="px-3 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:bg-gray-800 disabled:text-gray-500 text-white rounded-lg text-xs font-medium transition-colors flex items-center gap-1.5 shadow-sm"
+              >
+                {#if docStats?.is_indexing}
+                  <svg class="animate-spin h-3.5 w-3.5 text-blue-400" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24">
+                    <circle class="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" stroke-width="4"></circle>
+                    <path class="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8v8H4z"></path>
+                  </svg>
+                  <span>{currentLang === 'zh' ? '正在索引...' : 'Indexing...'}</span>
+                {:else}
+                  <span>⚡</span>
+                  <span>{currentLang === 'zh' ? '立即开始全量索引' : 'Start Indexing'}</span>
+                {/if}
+              </button>
+            </div>
+
+            <!-- Progress & Stats -->
+            <div class="bg-gray-950/60 rounded-xl p-3 border border-gray-800 space-y-2">
+              <div class="flex justify-between items-center text-xs">
+                <span class="text-gray-400 font-mono">
+                  {currentLang === 'zh' ? '已索引文档' : 'Indexed'}: <strong class="text-blue-400">{docStats?.total_indexed ?? 0}</strong> / {docStats?.total_candidates ?? 0}
+                </span>
+                <span class="text-[11px] {docStats?.is_indexing ? 'text-amber-400 animate-pulse' : 'text-emerald-400'}">
+                  {docStats?.is_indexing ? (currentLang === 'zh' ? '正在后台索引中' : 'Indexing in background') : (currentLang === 'zh' ? '已就绪' : 'Ready')}
+                </span>
+              </div>
+              <!-- Progress Bar -->
+              <div class="w-full bg-gray-800 rounded-full h-1.5 overflow-hidden">
+                <div
+                  class="bg-gradient-to-r from-blue-500 to-indigo-500 h-1.5 rounded-full transition-all duration-300"
+                  style="width: {docStats && docStats.total_candidates > 0 ? Math.min(100, (docStats.total_indexed / docStats.total_candidates) * 100) : (docStats && docStats.total_indexed > 0 ? 100 : 0)}%"
+                ></div>
+              </div>
+            </div>
+          </div>
+
           <div class="border-t border-gray-800 pt-4">
             <div class="flex items-center justify-between py-2">
               <div>
@@ -210,6 +298,7 @@
             </div>
           </div>
         </div>
+
 
       {:else if activeTab === 'history'}
         <div class="space-y-2">

@@ -150,62 +150,103 @@ impl DocCache {
         Ok(())
     }
 
-    /// 极速全文检索已缓存的文档 (支持 LIKE 容错与 FTS5 倒排索引)
+    /// 极速全文检索已缓存的文档 (优先使用 FTS5 倒排索引，自动降级至 LIKE 子串匹配)
     pub fn search_cached(&self, keyword: &str, limit: usize) -> Vec<CachedDocMatch> {
         let conn = self.conn.lock().unwrap();
         let keyword_lower = keyword.to_lowercase();
         let mut results = Vec::new();
+        let mut matched_paths = std::collections::HashSet::new();
 
-        // 优先使用 FTS5 倒排索引查询
-        let mut stmt = match conn.prepare(
-            "SELECT path, content FROM doc_cache WHERE content LIKE ?1 LIMIT ?2",
+        // 1. 优先使用 SQLite FTS5 MATCH 倒排索引（毫秒级极速检索）
+        let fts5_term = format!("\"{}\"", keyword.replace('"', "\"\""));
+        if let Ok(mut fts_stmt) = conn.prepare(
+            "SELECT path, content FROM doc_fts WHERE doc_fts MATCH ?1 LIMIT ?2",
         ) {
-            Ok(s) => s,
-            Err(_) => return results,
-        };
+            if let Ok(rows) = fts_stmt.query_map(params![fts5_term, limit as i64], |row| {
+                Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+            }) {
+                for item in rows.flatten() {
+                    let (file_path, content) = item;
+                    matched_paths.insert(file_path.clone());
+                    let file_name = Path::new(&file_path)
+                        .file_name()
+                        .and_then(|n| n.to_str())
+                        .unwrap_or("")
+                        .to_string();
 
-        let like_query = format!("%{}%", keyword);
-        let rows = match stmt.query_map(params![like_query, limit as i64], |row| {
-            Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
-        }) {
-            Ok(r) => r,
-            Err(_) => return results,
-        };
-
-        for item in rows.flatten() {
-            let (file_path, content) = item;
-            let file_name = Path::new(&file_path)
-                .file_name()
-                .and_then(|n| n.to_str())
-                .unwrap_or("")
-                .to_string();
-
-            // 提取匹配行与上下文
-            for (idx, line) in content.lines().enumerate() {
-                let line_lower = line.to_lowercase();
-                if let Some(pos) = line_lower.find(&keyword_lower) {
-                    let snippet = truncate_snippet(line, pos, keyword.len(), 100);
-                    let start_in_snip = snippet.to_lowercase().find(&keyword_lower).unwrap_or(0);
-                    results.push(CachedDocMatch {
-                        file_path: file_path.clone(),
-                        file_name: file_name.clone(),
-                        line_number: (idx + 1) as u32,
-                        line_text: snippet,
-                        match_start: start_in_snip,
-                        match_end: start_in_snip + keyword.len(),
-                    });
+                    // 提取首处匹配行（遵循单文件 Early-exit 策略）
+                    for (idx, line) in content.lines().enumerate() {
+                        let line_lower = line.to_lowercase();
+                        if let Some(pos) = line_lower.find(&keyword_lower) {
+                            let snippet = truncate_snippet(line, pos, keyword.len(), 100);
+                            let start_in_snip = snippet.to_lowercase().find(&keyword_lower).unwrap_or(0);
+                            results.push(CachedDocMatch {
+                                file_path: file_path.clone(),
+                                file_name: file_name.clone(),
+                                line_number: (idx + 1) as u32,
+                                line_text: snippet,
+                                match_start: start_in_snip,
+                                match_end: start_in_snip + keyword.len(),
+                            });
+                            break;
+                        }
+                    }
                     if results.len() >= limit {
                         break;
                     }
                 }
             }
-            if results.len() >= limit {
-                break;
+        }
+
+        // 2. 如果 FTS5 结果未满且还有配额，使用 LIKE 进行中文无分词子串补全
+        if results.len() < limit {
+            let remaining = limit - results.len();
+            let like_query = format!("%{}%", keyword);
+            if let Ok(mut like_stmt) = conn.prepare(
+                "SELECT path, content FROM doc_cache WHERE content LIKE ?1 LIMIT ?2",
+            ) {
+                if let Ok(rows) = like_stmt.query_map(params![like_query, (remaining * 2) as i64], |row| {
+                    Ok((row.get::<_, String>(0)?, row.get::<_, String>(1)?))
+                }) {
+                    for item in rows.flatten() {
+                        let (file_path, content) = item;
+                        if matched_paths.contains(&file_path) {
+                            continue;
+                        }
+                        matched_paths.insert(file_path.clone());
+                        let file_name = Path::new(&file_path)
+                            .file_name()
+                            .and_then(|n| n.to_str())
+                            .unwrap_or("")
+                            .to_string();
+
+                        for (idx, line) in content.lines().enumerate() {
+                            let line_lower = line.to_lowercase();
+                            if let Some(pos) = line_lower.find(&keyword_lower) {
+                                let snippet = truncate_snippet(line, pos, keyword.len(), 100);
+                                let start_in_snip = snippet.to_lowercase().find(&keyword_lower).unwrap_or(0);
+                                results.push(CachedDocMatch {
+                                    file_path: file_path.clone(),
+                                    file_name: file_name.clone(),
+                                    line_number: (idx + 1) as u32,
+                                    line_text: snippet,
+                                    match_start: start_in_snip,
+                                    match_end: start_in_snip + keyword.len(),
+                                });
+                                break;
+                            }
+                        }
+                        if results.len() >= limit {
+                            break;
+                        }
+                    }
+                }
             }
         }
 
         results
     }
+
 
     /// 获取当前文档索引库状态
     pub fn get_stats(&self) -> DocIndexStats {

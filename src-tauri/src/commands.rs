@@ -120,6 +120,7 @@ pub async fn search_content(
     query: String,
 ) -> Result<ContentSearchResponse, String> {
     let engine = state.engine.clone();
+    let doc_cache = state.doc_cache.clone();
     let app = app_handle.clone();
 
     let result = tokio::task::spawn_blocking(move || {
@@ -136,10 +137,19 @@ pub async fn search_content(
             });
         }
 
+        // 1. 优先查询 SQLite FTS5 倒排索引缓存 (1~3ms 极速响应)
+        let cached_matches = doc_cache.search_cached(&keyword, 200);
+
         let eng = engine.read();
         let files = eng.files_ref();
 
-        let response = content_search::search_content_with_query(files, &parsed, &keyword);
+        // 2. 智能合并：已缓存文件 0ms 秒出，未缓存文件多核并行流式短路提取
+        let response = content_search::search_content_with_query_and_cache(
+            files,
+            &parsed,
+            &keyword,
+            Some(&cached_matches),
+        );
 
         let batch_size = 50;
         let total = response.matches.len();
@@ -156,12 +166,12 @@ pub async fn search_content(
 
         Ok(response)
     })
-
     .await
     .map_err(|e| format!("Task join error: {e}"))??;
 
     Ok(result)
 }
+
 
 #[tauri::command]
 pub fn get_content_preview(

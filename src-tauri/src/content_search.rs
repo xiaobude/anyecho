@@ -8,8 +8,10 @@ use serde::Serialize;
 
 use crate::doc_extractor::{extract_document_text, is_binary_document_ext, is_supported_document_ext};
 use crate::engine::matcher::IndexedFile;
+use crate::engine::filter::ParsedQuery;
 
 const MAX_CONTENT_SIZE: u64 = 50 * 1024 * 1024; // 50MB
+
 
 #[derive(Serialize, Clone, Debug)]
 pub struct ContentMatch {
@@ -162,13 +164,22 @@ pub fn search_content(
     }
 }
 
-pub fn search_content_with_query(
+pub fn search_content_with_query_and_cache(
     files: &[IndexedFile],
-    parsed: &crate::engine::filter::ParsedQuery,
+    parsed: &ParsedQuery,
     keyword: &str,
+    cached_matches: Option<&[crate::doc_cache::CachedDocMatch]>,
 ) -> ContentSearchResponse {
     let start = std::time::Instant::now();
     let keyword_lower = keyword.to_lowercase();
+
+    // 构建已缓存命中映射表 (路径 -> CachedDocMatch)
+    let mut cached_map: std::collections::HashMap<String, &crate::doc_cache::CachedDocMatch> = std::collections::HashMap::new();
+    if let Some(cached) = cached_matches {
+        for c in cached {
+            cached_map.insert(c.file_path.to_lowercase(), c);
+        }
+    }
 
     let candidates: Vec<&IndexedFile> = files
         .iter()
@@ -194,12 +205,36 @@ pub fn search_content_with_query(
 
     let files_searched = candidates.len();
 
-    let mut all_matches: Vec<ContentMatch> = candidates
+    // 分离出：已在 SQLite 缓存中命中的文件 vs 需现场磁盘/流式搜索的文件
+    let mut all_matches: Vec<ContentMatch> = Vec::new();
+    let mut files_to_scan: Vec<&IndexedFile> = Vec::new();
+
+    for file in &candidates {
+        let path_lower = file.full_path.to_lowercase();
+        if let Some(cached) = cached_map.get(&path_lower) {
+            // ⚡ 由 SQLite FTS5 缓存毫秒级直接响应！无需重复磁盘 I/O
+            all_matches.push(ContentMatch {
+                file_path: cached.file_path.clone(),
+                file_name: cached.file_name.clone(),
+                line_number: cached.line_number,
+                line_text: cached.line_text.clone(),
+                match_start: cached.match_start,
+                match_end: cached.match_end,
+            });
+        } else {
+            files_to_scan.push(file);
+        }
+    }
+
+    // 对未缓存的文件使用多核并行 + Early-Exit 流式短路扫描
+    let disk_matches: Vec<ContentMatch> = files_to_scan
         .par_iter()
         .filter_map(|file| {
             search_file_first_match(file, &keyword_lower)
         })
         .collect();
+
+    all_matches.extend(disk_matches);
 
     all_matches.sort_by(|a, b| {
         a.file_path.cmp(&b.file_path).then(a.line_number.cmp(&b.line_number))
@@ -214,6 +249,14 @@ pub fn search_content_with_query(
         search_time_us: start.elapsed().as_micros() as u64,
         is_complete: true,
     }
+}
+
+pub fn search_content_with_query(
+    files: &[IndexedFile],
+    parsed: &ParsedQuery,
+    keyword: &str,
+) -> ContentSearchResponse {
+    search_content_with_query_and_cache(files, parsed, keyword, None)
 }
 
 /// 核心短路优化：
