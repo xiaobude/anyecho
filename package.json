@@ -11,8 +11,9 @@
     "tauri": "tauri",
     "deploy": "node scripts/deploy.mjs",
     "build:ae": "cargo build --release --manifest-path src-tauri/Cargo.toml --bin ae",
-    "build:all": "tauri build && npm run build:ae && npm run deploy",
+    "build:all": "npm run build:ae && tauri build && npm run deploy",
     "release": "npm run build:all"
+
   },
 
   "devDependencies": {

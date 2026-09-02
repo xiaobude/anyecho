@@ -29,9 +29,12 @@
   "bundle": {
     "active": true,
     "targets": ["nsis"],
+    "resources": [
+      "target/release/ae.exe"
+    ],
     "icon": [
       "icons/icon.ico"
     ]
   }
-
 }
+

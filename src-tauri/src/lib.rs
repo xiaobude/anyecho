@@ -129,10 +129,13 @@ pub fn run() {
         .plugin(tauri_plugin_shell::init())
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
         .setup(|app| {
+            system::ensure_cli_in_path();
+
             let handle = app.handle().clone();
             tray::setup_tray(&handle).unwrap_or_else(|e| {
                 tracing::error!("Failed to setup tray: {}", e);
             });
+
 
             let shortcut_handle = handle.clone();
             use tauri_plugin_global_shortcut::GlobalShortcutExt;
