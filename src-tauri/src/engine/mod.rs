@@ -354,12 +354,17 @@ impl SearchEngine {
     }
 
     pub fn save_snapshot(&self, file_path: &std::path::Path) -> Result<(), String> {
-        let snapshot_items: Vec<SnapshotFileItem> = self
+        let snapshot_files: Vec<SnapshotFileItem> = self
             .files
             .iter()
             .map(|f| SnapshotFileItem {
                 name: f.name.clone(),
                 full_path: f.full_path.clone(),
+                name_lower: f.name_lower.clone(),
+                full_path_lower: f.full_path_lower.clone(),
+                pinyin_first: f.pinyin_first.clone(),
+                pinyin_full: f.pinyin_full.clone(),
+                ext: f.ext.clone(),
                 size: f.size,
                 mtime: f.mtime,
                 is_directory: f.is_directory,
@@ -371,13 +376,14 @@ impl SearchEngine {
             .collect();
 
         let snapshot = IndexSnapshot {
-            version: 1,
+            version: 2,
             timestamp: std::time::SystemTime::now()
                 .duration_since(std::time::UNIX_EPOCH)
                 .unwrap_or_default()
                 .as_secs() as i64,
-            files: snapshot_items,
+            files: snapshot_files,
         };
+
 
         if let Some(parent) = file_path.parent() {
             let _ = std::fs::create_dir_all(parent);
@@ -409,28 +415,16 @@ impl SearchEngine {
 
         self.files = snapshot
             .files
-            .into_par_iter()
+            .into_iter()
             .map(|f| {
-                let name_lower = f.name.to_lowercase();
-                let full_path_lower = f.full_path.to_lowercase();
-                let (pinyin_first, pinyin_full) = extract_pinyin(&f.name);
-                let ext = if f.is_directory {
-                    String::new()
-                } else {
-                    f.name
-                        .rsplit_once('.')
-                        .map(|(_, e)| e.to_lowercase())
-                        .unwrap_or_default()
-                };
-
                 IndexedFile {
                     name: f.name,
                     full_path: f.full_path,
-                    name_lower,
-                    full_path_lower,
-                    pinyin_first,
-                    pinyin_full,
-                    ext,
+                    name_lower: f.name_lower,
+                    full_path_lower: f.full_path_lower,
+                    pinyin_first: f.pinyin_first,
+                    pinyin_full: f.pinyin_full,
+                    ext: f.ext,
                     size: f.size,
                     mtime: f.mtime,
                     is_directory: f.is_directory,
@@ -458,6 +452,11 @@ impl SearchEngine {
 pub struct SnapshotFileItem {
     pub name: String,
     pub full_path: String,
+    pub name_lower: String,
+    pub full_path_lower: String,
+    pub pinyin_first: Option<String>,
+    pub pinyin_full: Option<String>,
+    pub ext: String,
     pub size: u64,
     pub mtime: i64,
     pub is_directory: bool,

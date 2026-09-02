@@ -314,8 +314,6 @@ fn run_cli_scan() {
 }
 
 fn run_cli_search(query: &str, limit: usize, json_mode: bool, path_only: bool) {
-    let start = Instant::now();
-
     let mut engine = SearchEngine::new();
     let snapshot_path = get_snapshot_path();
 
@@ -339,7 +337,7 @@ fn run_cli_search(query: &str, limit: usize, json_mode: bool, path_only: bool) {
     }
 
     let response = engine.search(query, 0, limit);
-    let search_us = start.elapsed().as_micros();
+    let search_ms = response.search_time_us as f64 / 1000.0;
 
     if json_mode {
         println!("{}", serde_json::to_string_pretty(&response).unwrap_or_default());
@@ -356,10 +354,11 @@ fn run_cli_search(query: &str, limit: usize, json_mode: bool, path_only: bool) {
     // Formatted Table Output
     println!();
     println!("⚡ 凡响 AnyEcho | 检索: \"{}\" | 命中: {} 个 (显示前 {} 条, 耗时: {:.2} ms)", 
-        query, response.total_matches, response.items.len(), search_us as f64 / 1000.0);
+        query, response.total_matches, response.items.len(), search_ms);
     println!("{}", "-".repeat(95));
     println!("{:<4} {:<32} {:<10} {:<10} {}", "#", "名称 (Name)", "类型", "大小", "路径 (Path)");
     println!("{}", "-".repeat(95));
+
 
     for (idx, item) in response.items.iter().enumerate() {
         let name_truncated = if item.name.chars().count() > 30 {
