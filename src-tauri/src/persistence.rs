@@ -42,7 +42,11 @@ impl Database {
         let conn = Connection::open(&db_path)
             .map_err(|e| format!("Failed to open database: {e}"))?;
 
+        let _ = conn.busy_timeout(std::time::Duration::from_millis(500));
+        let _ = conn.execute_batch("PRAGMA busy_timeout = 500;");
+
         let db = Self { conn: Mutex::new(conn) };
+
         db.run_migrations()?;
         Ok(db)
     }

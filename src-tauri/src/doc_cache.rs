@@ -43,14 +43,18 @@ impl DocCache {
         let conn = Connection::open(&db_path)
             .map_err(|e| format!("Failed to open doc cache DB: {e}"))?;
 
+        let _ = conn.busy_timeout(Duration::from_millis(500));
+
         // 优化 SQLite PRAGMA 参数以获得极速并发性能
         conn.execute_batch(
             "PRAGMA journal_mode = WAL;
              PRAGMA synchronous = NORMAL;
              PRAGMA temp_store = MEMORY;
-             PRAGMA cache_size = -64000;",
+             PRAGMA cache_size = -64000;
+             PRAGMA busy_timeout = 500;",
         )
         .map_err(|e| format!("Pragma setup failed: {e}"))?;
+
 
         let cache = Self {
             conn: Mutex::new(conn),

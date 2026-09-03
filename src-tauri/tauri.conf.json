@@ -1,7 +1,7 @@
 {
   "$schema": "https://raw.githubusercontent.com/nicegui/nicegui/main/nicegui/static/vue/tauri/schema.json",
   "productName": "凡响 AnyEcho",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "identifier": "com.anyecho.desktop",
   "build": {
     "beforeDevCommand": "npm run dev",

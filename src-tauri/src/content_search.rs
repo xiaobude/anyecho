@@ -21,7 +21,11 @@ pub struct ContentMatch {
     pub line_text: String,
     pub match_start: usize,
     pub match_end: usize,
+    pub size: u64,
+    pub mtime: i64,
+    pub ext: String,
 }
+
 
 #[derive(Serialize, Clone, Debug)]
 pub struct ContentSearchResponse {
@@ -220,21 +224,37 @@ pub fn search_content_with_query_and_cache(
                 line_text: cached.line_text.clone(),
                 match_start: cached.match_start,
                 match_end: cached.match_end,
+                size: file.size,
+                mtime: file.mtime,
+                ext: file.ext.clone(),
             });
         } else {
+
             files_to_scan.push(file);
         }
     }
 
-    // 对未缓存的文件使用多核并行 + Early-Exit 流式短路扫描
+    // 对未缓存的文件使用多核并行 + Early-Exit 流式短路扫描 (全局达到上限后立即终止其余 I/O 线程)
+    let found_count = std::sync::atomic::AtomicUsize::new(all_matches.len());
+    let max_target = 200;
+
     let disk_matches: Vec<ContentMatch> = files_to_scan
         .par_iter()
         .filter_map(|file| {
-            search_file_first_match(file, &keyword_lower)
+            if found_count.load(std::sync::atomic::Ordering::Relaxed) >= max_target {
+                return None;
+            }
+            if let Some(m) = search_file_first_match(file, &keyword_lower) {
+                found_count.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+                Some(m)
+            } else {
+                None
+            }
         })
         .collect();
 
     all_matches.extend(disk_matches);
+
 
     all_matches.sort_by(|a, b| {
         a.file_path.cmp(&b.file_path).then(a.line_number.cmp(&b.line_number))
@@ -277,6 +297,9 @@ pub fn search_file_first_match(file: &IndexedFile, keyword_lower: &str) -> Optio
             line_text: format!("📄 [文件名命中] {}", decoded_name),
             match_start: pos,
             match_end: pos + keyword_lower.len(),
+            size: file.size,
+            mtime: file.mtime,
+            ext: file.ext.clone(),
         });
     }
 
@@ -287,7 +310,7 @@ pub fn search_file_first_match(file: &IndexedFile, keyword_lower: &str) -> Optio
 
     // 1. PDF 专属按页逐流流式短路搜索 (命中即停，无需解出全书所有页面)
     if file.ext.eq_ignore_ascii_case("pdf") {
-        return search_pdf_first_match(path, keyword_lower, &decoded_path, &decoded_name);
+        return search_pdf_first_match(path, keyword_lower, &decoded_path, &decoded_name, file.size, file.mtime, &file.ext);
     }
 
 
@@ -304,6 +327,9 @@ pub fn search_file_first_match(file: &IndexedFile, keyword_lower: &str) -> Optio
                     line_text: line.trim().to_string(),
                     match_start: pos,
                     match_end: pos + keyword_lower.len(),
+                    size: file.size,
+                    mtime: file.mtime,
+                    ext: file.ext.clone(),
                 });
             }
         }
@@ -335,6 +361,9 @@ pub fn search_file_first_match(file: &IndexedFile, keyword_lower: &str) -> Optio
                 line_text: line.trim().to_string(),
                 match_start: pos,
                 match_end: pos + keyword_lower.len(),
+                size: file.size,
+                mtime: file.mtime,
+                ext: file.ext.clone(),
             });
         }
     }
@@ -348,6 +377,9 @@ fn search_pdf_first_match(
     keyword_lower: &str,
     decoded_path: &str,
     decoded_name: &str,
+    size: u64,
+    mtime: i64,
+    ext: &str,
 ) -> Option<ContentMatch> {
     let doc = lopdf::Document::load(path).ok()?;
     if doc.is_encrypted() {
@@ -369,6 +401,9 @@ fn search_pdf_first_match(
                         line_text: line.trim().to_string(),
                         match_start: pos,
                         match_end: pos + keyword_lower.len(),
+                        size,
+                        mtime,
+                        ext: ext.to_string(),
                     });
                 }
                 total_line_num += 1;
@@ -378,6 +413,7 @@ fn search_pdf_first_match(
 
     None
 }
+
 
 pub fn get_content_preview(file_path: &str, keyword: &str, context_lines: u32) -> Option<ContentPreview> {
     let path = Path::new(file_path);

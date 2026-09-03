@@ -48,7 +48,11 @@ export interface ContentMatch {
   line_text: string;
   match_start: number;
   match_end: number;
+  size: number;
+  mtime: number;
+  ext: string;
 }
+
 
 export interface ContentSearchResponse {
   matches: ContentMatch[];

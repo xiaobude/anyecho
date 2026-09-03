@@ -36,3 +36,26 @@ Thumbs.db
 Plan.md
 新建 文本文档.txt
 
+# Non-AnyEcho / External Projects in directory
+/Myllama/
+/MyopenWRT/
+/ai-app/
+/ai-app-0.1.0.tar.gz
+/claude-app/
+/gemini/
+/getai/
+/models/
+/nvfp4-gguf/
+/rk-llama/
+/translation/
+/usloth-desktop/
+*.dll
+*.m3u
+*.m3u.bak
+*.csv
+body.json
+register_ffplay.ps1
+totaltime.txt
+update_hktv_player_sources.py
+hktv_player.html*
+

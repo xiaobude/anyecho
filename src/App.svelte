@@ -11,7 +11,8 @@
   import SettingsPanel from './lib/components/SettingsPanel.svelte';
   import Toast from './lib/components/Toast.svelte';
 
-  import { formatBytes } from './lib/utils/format';
+  import { formatBytes, formatDate, getFileIcon, getFileTypeName } from './lib/utils/format';
+
 
   let currentLang = $state<Language>('zh');
   const t = $derived(dictionaries[currentLang]);
@@ -352,12 +353,26 @@
     handleOpenFile({
       name: match.file_name,
       full_path: match.file_path,
-      size: 0,
-      mtime: 0,
+      size: match.size || 0,
+      mtime: match.mtime || 0,
       is_directory: false,
-      ext: '',
+      ext: match.ext || '',
     });
   }
+
+  function handleContentMatchContextMenu(e: MouseEvent, match: ContentMatch, index: number) {
+    e.preventDefault();
+    contentSelectedIndex = index;
+    handleContextMenu(e, {
+      name: match.file_name,
+      full_path: match.file_path,
+      size: match.size || 0,
+      mtime: match.mtime || 0,
+      is_directory: false,
+      ext: match.ext || '',
+    });
+  }
+
 
 
 
@@ -501,10 +516,10 @@
             handleShowInFolder({
               name: item.file_name,
               full_path: item.file_path,
-              size: 0,
-              mtime: 0,
+              size: item.size || 0,
+              mtime: item.mtime || 0,
               is_directory: false,
-              ext: '',
+              ext: item.ext || '',
             });
           } else {
             handleContentMatchDblClick(item);
@@ -531,11 +546,23 @@
         hideWindow();
       }
     } else if (e.ctrlKey && e.key.toLowerCase() === 'c') {
-
-      if (!isContentSearch && searchResults[selectedIndex]) {
+      if (isContentSearch) {
+        const item = contentMatches[contentSelectedIndex];
+        if (item) {
+          handleCopyPath({
+            name: item.file_name,
+            full_path: item.file_path,
+            size: item.size || 0,
+            mtime: item.mtime || 0,
+            is_directory: false,
+            ext: item.ext || '',
+          });
+        }
+      } else if (searchResults[selectedIndex]) {
         handleCopyPath(searchResults[selectedIndex]);
       }
     }
+
   }
 
   onMount(() => {
@@ -766,76 +793,67 @@
   {/if}
 
   <!-- List header -->
-  {#if !isContentSearch}
-    <!-- svelte-ignore a11y_no_static_element_interactions -->
-    <div class="flex items-center px-3 py-1.5 bg-gray-900/80 border-b border-gray-800/80 text-[11px] font-semibold text-gray-400 shrink-0 select-none">
-      <!-- 序号 -->
-      <div style="width: {colWidths.index}px" class="relative text-center shrink-0 flex items-center justify-center">
-        <span>#</span>
-      </div>
+  <!-- svelte-ignore a11y_no_static_element_interactions -->
+  <div class="flex items-center px-3 py-1.5 bg-gray-900/80 border-b border-gray-800/80 text-[11px] font-semibold text-gray-400 shrink-0 select-none">
+    <!-- 序号 -->
+    <div style="width: {colWidths.index}px" class="relative text-center shrink-0 flex items-center justify-center">
+      <span>#</span>
+    </div>
 
-      <!-- 名称 -->
-      <div style="width: {colWidths.name}px" class="relative pr-3 shrink-0 flex items-center">
-        <span class="truncate">{t.colName}</span>
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div
-          class="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize flex justify-center items-center hover:bg-blue-500/30 group z-10"
-          onmousedown={(e) => startResize('name', e)}
-        >
-          <div class="w-[1px] h-3 bg-gray-700 group-hover:bg-blue-400 transition-colors"></div>
-        </div>
-      </div>
-
-      <!-- 类型 -->
-      <div style="width: {colWidths.type}px" class="relative pr-3 shrink-0 flex items-center">
-        <span class="truncate">{t.colType}</span>
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div
-          class="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize flex justify-center items-center hover:bg-blue-500/30 group z-10"
-          onmousedown={(e) => startResize('type', e)}
-        >
-          <div class="w-[1px] h-3 bg-gray-700 group-hover:bg-blue-400 transition-colors"></div>
-        </div>
-      </div>
-
-      <!-- 路径 -->
-      <div class="flex-1 pr-3 truncate flex items-center" style="min-width: 120px">
-        <span class="truncate">{t.colPath}</span>
-      </div>
-
-      <!-- 大小 -->
-      <div style="width: {colWidths.size}px" class="relative pr-3 shrink-0 flex items-center justify-end">
-        <span class="truncate">{t.colSize}</span>
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div
-          class="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize flex justify-center items-center hover:bg-blue-500/30 group z-10"
-          onmousedown={(e) => startResize('size', e)}
-        >
-          <div class="w-[1px] h-3 bg-gray-700 group-hover:bg-blue-400 transition-colors"></div>
-        </div>
-      </div>
-
-      <!-- 修改日期 -->
-      <div style="width: {colWidths.date}px" class="relative shrink-0 flex items-center justify-end">
-        <span class="truncate">{t.colDate}</span>
-        <!-- svelte-ignore a11y_no_static_element_interactions -->
-        <div
-          class="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize flex justify-center items-center hover:bg-blue-500/30 group z-10"
-          onmousedown={(e) => startResize('date', e)}
-        >
-          <div class="w-[1px] h-3 bg-gray-700 group-hover:bg-blue-400 transition-colors"></div>
-        </div>
+    <!-- 名称 -->
+    <div style="width: {colWidths.name}px" class="relative pr-3 shrink-0 flex items-center">
+      <span class="truncate">{t.colName}</span>
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div
+        class="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize flex justify-center items-center hover:bg-blue-500/30 group z-10"
+        onmousedown={(e) => startResize('name', e)}
+      >
+        <div class="w-[1px] h-3 bg-gray-700 group-hover:bg-blue-400 transition-colors"></div>
       </div>
     </div>
 
-  {:else}
-    <div class="flex items-center px-3 py-1.5 bg-gray-900/60 border-b border-gray-800/60 text-[11px] font-semibold text-gray-400 shrink-0 select-none">
-      <div class="w-10 mr-2 text-center">{t.colNum}</div>
-      <div class="w-1/3 min-w-[180px] pr-2">{t.colName}</div>
-      <div class="flex-1 pr-2">{t.colLine}</div>
-      <div class="w-16 text-right">{t.colLine}</div>
+    <!-- 类型 -->
+    <div style="width: {colWidths.type}px" class="relative pr-3 shrink-0 flex items-center">
+      <span class="truncate">{t.colType}</span>
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div
+        class="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize flex justify-center items-center hover:bg-blue-500/30 group z-10"
+        onmousedown={(e) => startResize('type', e)}
+      >
+        <div class="w-[1px] h-3 bg-gray-700 group-hover:bg-blue-400 transition-colors"></div>
+      </div>
     </div>
-  {/if}
+
+    <!-- 路径 -->
+    <div class="flex-1 pr-3 truncate flex items-center" style="min-width: 120px">
+      <span class="truncate">{t.colPath}</span>
+    </div>
+
+    <!-- 大小 -->
+    <div style="width: {colWidths.size}px" class="relative pr-3 shrink-0 flex items-center justify-end">
+      <span class="truncate">{t.colSize}</span>
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div
+        class="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize flex justify-center items-center hover:bg-blue-500/30 group z-10"
+        onmousedown={(e) => startResize('size', e)}
+      >
+        <div class="w-[1px] h-3 bg-gray-700 group-hover:bg-blue-400 transition-colors"></div>
+      </div>
+    </div>
+
+    <!-- 修改日期 -->
+    <div style="width: {colWidths.date}px" class="relative shrink-0 flex items-center justify-end">
+      <span class="truncate">{t.colDate}</span>
+      <!-- svelte-ignore a11y_no_static_element_interactions -->
+      <div
+        class="absolute right-0 top-0 bottom-0 w-2 cursor-col-resize flex justify-center items-center hover:bg-blue-500/30 group z-10"
+        onmousedown={(e) => startResize('date', e)}
+      >
+        <div class="w-[1px] h-3 bg-gray-700 group-hover:bg-blue-400 transition-colors"></div>
+      </div>
+    </div>
+  </div>
+
 
   <!-- Main content area -->
   <main class="flex-1 flex flex-col overflow-hidden relative">
@@ -868,38 +886,47 @@
         <div class="flex-1 w-full overflow-y-auto">
           {#each contentMatches as match, idx (idx)}
             {@const isSelected = idx === contentSelectedIndex}
-            {@const keyword = extractContentKeyword(query)}
+            {@const iconInfo = getFileIcon(match.ext || '', false)}
+            {@const typeName = getFileTypeName(match.ext || '', false, t.appName === '凡响' ? 'zh' : 'en')}
             <div
               role="button"
               tabindex="0"
-              class="flex items-center px-3 text-xs border-b border-gray-800/40 cursor-pointer transition-colors duration-75 {isSelected ? 'bg-amber-600/20 text-white border-amber-500/30' : 'text-gray-200 hover:bg-gray-800/60'}"
+              style="height: 36px;"
+              class="flex items-center px-3 text-xs border-b border-gray-800/40 cursor-pointer transition-colors duration-75 {isSelected ? 'bg-amber-600/30 text-white border-amber-500/50' : 'text-gray-200 hover:bg-gray-800/60'}"
               onclick={() => handleContentMatchClick(match, idx)}
               ondblclick={() => handleContentMatchDblClick(match)}
+              oncontextmenu={(e) => handleContentMatchContextMenu(e, match, idx)}
               onkeydown={(e) => { if (e.key === 'Enter') handleContentMatchDblClick(match); }}
             >
-              <div class="w-10 text-center text-[10px] text-gray-500 mr-2 shrink-0 tabular-nums">
-                {idx + 1}
-              </div>
+              <!-- 序号 -->
+              <span style="width: {colWidths.index}px" class="text-center text-[10px] text-gray-500 shrink-0 tabular-nums">{idx + 1}</span>
 
-              <div class="w-1/3 min-w-[180px] font-medium truncate pr-2 {isSelected ? 'text-amber-200 font-semibold' : ''}" title={match.file_path}>
+              <!-- 文件名 -->
+              <div style="width: {colWidths.name}px" class="font-medium truncate pr-3 shrink-0 {isSelected ? 'text-amber-200 font-semibold' : ''}" title={match.file_name}>
+                <span class="inline-block text-sm mr-1.5 {iconInfo.color}">{iconInfo.icon}</span>
                 {match.file_name}
               </div>
 
-              <div class="flex-1 truncate text-[11px] pr-2 font-mono">
-                {#each highlightText(match.line_text.trim(), keyword) as part}
-                  {#if part.isMatch}
-                    <mark class="bg-amber-400/30 text-amber-200 rounded px-0.5">{part.text}</mark>
-                  {:else}
-                    <span class="text-gray-400">{part.text}</span>
-                  {/if}
-                {/each}
+              <!-- 类型 / 扩展名 -->
+              <div style="width: {colWidths.type}px" class="truncate pr-3 shrink-0 text-[11px] text-gray-400 font-mono uppercase" title={typeName}>
+                {typeName}
               </div>
 
-              <div class="w-16 text-right text-gray-500 shrink-0 tabular-nums text-[10px] font-mono">
-                {match.line_number === 0 ? '文件名' : `:${match.line_number}`}
+              <!-- 完整物理路径 -->
+              <div class="flex-1 text-gray-400 truncate text-[11px] pr-3 font-mono" style="min-width: 120px" title={match.file_path}>
+                {match.file_path}
+              </div>
+
+              <!-- 大小 -->
+              <div style="width: {colWidths.size}px" class="text-right text-gray-300 shrink-0 tabular-nums font-mono pr-3">
+                {formatBytes(match.size || 0)}
+              </div>
+
+              <!-- 修改时间 -->
+              <div style="width: {colWidths.date}px" class="text-right text-gray-400 shrink-0 tabular-nums font-mono">
+                {formatDate(match.mtime || 0)}
               </div>
             </div>
-
           {/each}
         </div>
       {/if}
@@ -959,7 +986,7 @@
     <div class="flex-1 text-center truncate px-4 text-gray-500">
       {#if isContentSearch && contentMatches[contentSelectedIndex]}
         <span class="text-gray-300 font-mono" title={contentMatches[contentSelectedIndex].file_path}>
-          {contentMatches[contentSelectedIndex].file_path}:{contentMatches[contentSelectedIndex].line_number}
+          {contentMatches[contentSelectedIndex].file_path}
         </span>
       {:else if searchResults[selectedIndex]}
         <span class="text-gray-300 font-mono">{searchResults[selectedIndex].full_path}</span>
@@ -967,15 +994,11 @@
     </div>
 
     <div class="flex items-center gap-2 text-gray-500 shrink-0">
-      {#if isContentSearch}
-        <span><kbd class="px-1 py-0.5 bg-gray-800 border border-gray-700 rounded text-[10px] text-gray-400 font-mono">↵</kbd> {t.keyOpen}</span>
-        <span><kbd class="px-1 py-0.5 bg-gray-800 border border-gray-700 rounded text-[10px] text-gray-400 font-mono">Esc</kbd> {t.settingsClose}</span>
-      {:else}
-        <span><kbd class="px-1 py-0.5 bg-gray-800 border border-gray-700 rounded text-[10px] text-gray-400 font-mono">↵</kbd> {t.keyOpen}</span>
-        <span><kbd class="px-1 py-0.5 bg-gray-800 border border-gray-700 rounded text-[10px] text-gray-400 font-mono">Shift+↵</kbd> {t.keyReveal}</span>
-        <span><kbd class="px-1 py-0.5 bg-gray-800 border border-gray-700 rounded text-[10px] text-gray-400 font-mono">Ctrl+C</kbd> {t.keyCopy}</span>
-      {/if}
+      <span><kbd class="px-1 py-0.5 bg-gray-800 border border-gray-700 rounded text-[10px] text-gray-400 font-mono">↵</kbd> {t.keyOpen}</span>
+      <span><kbd class="px-1 py-0.5 bg-gray-800 border border-gray-700 rounded text-[10px] text-gray-400 font-mono">Shift+↵</kbd> {t.keyReveal}</span>
+      <span><kbd class="px-1 py-0.5 bg-gray-800 border border-gray-700 rounded text-[10px] text-gray-400 font-mono">Ctrl+C</kbd> {t.keyCopy}</span>
     </div>
+
   </footer>
 
   <!-- Context menu -->

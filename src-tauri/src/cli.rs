@@ -4,9 +4,11 @@ use std::path::Path;
 use std::time::Instant;
 use crate::engine::SearchEngine;
 use crate::engine::filter::ParsedQuery;
-use crate::content_search::search_content_with_query;
+use crate::content_search::search_content_with_query_and_cache;
+use crate::doc_cache::DocCache;
 use crate::persistence::{get_snapshot_path, Database};
 use crate::scanner::scan_all_volumes_with_files;
+
 
 
 pub fn handle_cli_args() -> bool {
@@ -445,7 +447,12 @@ fn run_cli_search(query: &str, limit: usize, json_mode: bool, path_only: bool) {
 
     if !parsed.content_terms.is_empty() {
         let keyword = parsed.content_terms.join(" ");
-        let content_resp = search_content_with_query(engine.files(), &parsed, &keyword);
+        let cached_hits = if let Ok(doc_cache) = DocCache::new() {
+            doc_cache.search_cached(&keyword, limit * 2)
+        } else {
+            Vec::new()
+        };
+        let content_resp = search_content_with_query_and_cache(engine.files(), &parsed, &keyword, Some(&cached_hits));
         let search_ms = content_resp.search_time_us as f64 / 1000.0;
 
         if json_mode {
@@ -464,43 +471,45 @@ fn run_cli_search(query: &str, limit: usize, json_mode: bool, path_only: bool) {
         }
 
         println!();
-        println!("⚡ 凡响 AnyEcho | 文档/文本内容检索: \"{}\" | 命中: {} 处匹配 (扫描 {} 个文档/文件, 耗时: {:.2} ms)", 
-            keyword, content_resp.total_matches, content_resp.files_searched, search_ms);
-        println!("{}", "-".repeat(110));
-
-        println!("{:<4} {:<45} {:<8} {}", "#", "文件路径 (File)", "行号", "匹配行内容片段 (Snippet)");
-        println!("{}", "-".repeat(110));
+        println!("⚡ 凡响 AnyEcho | 文档/全文内容检索: \"{}\" | 命中: {} 个文件 (耗时: {:.2} ms)", 
+            keyword, content_resp.total_matches, search_ms);
+        println!("{}", "-".repeat(95));
+        println!("{:<4} {:<32} {:<10} {:<10} {}", "#", "名称 (Name)", "类型", "大小", "路径 (Path)");
+        println!("{}", "-".repeat(95));
 
         for (idx, m) in content_resp.matches.iter().take(limit).enumerate() {
-            let path_truncated = if m.file_path.chars().count() > 42 {
-                let suffix: String = m.file_path.chars().rev().take(39).collect();
-                format!("...{}", suffix.chars().rev().collect::<String>())
+            let display_name = crate::content_search::decode_percent_encoded(&m.file_name);
+            let display_path = crate::content_search::decode_percent_encoded(&m.file_path);
+
+            let ext = Path::new(&display_name)
+                .extension()
+                .and_then(|e| e.to_str())
+                .map(|e| e.to_uppercase())
+                .unwrap_or_else(|| "-".to_string());
+
+            let name_truncated = if display_name.chars().count() > 30 {
+                format!("{}...", display_name.chars().take(27).collect::<String>())
             } else {
-                m.file_path.clone()
+                display_name
             };
 
-            let line_trimmed = m.line_text.trim();
-            let snippet = if line_trimmed.chars().count() > 52 {
-                format!("{}...", line_trimmed.chars().take(49).collect::<String>())
+            let size_str = if let Ok(meta) = std::fs::metadata(&m.file_path) {
+                format_size(meta.len(), false)
             } else {
-                line_trimmed.to_string()
+                "-".to_string()
             };
 
-            let line_display = if m.line_number == 0 {
-                "NAME".to_string()
-            } else {
-                m.line_number.to_string()
-            };
-
-            println!("{:<4} {:<45} {:<8} {}", idx + 1, path_truncated, line_display, snippet);
+            println!("{:<4} {:<32} {:<10} {:<10} {}", 
+                idx + 1, name_truncated, ext, size_str, display_path);
         }
 
-
-        println!("{}", "-".repeat(110));
-        println!("📊 检索统计: 共命中 {} 处匹配 (显示前 {} 条)", content_resp.total_matches, content_resp.matches.len().min(limit));
+        println!("{}", "-".repeat(95));
+        println!("📊 检索统计: 命中 {} 个包含关键词的文件 (显示前 {} 条)", 
+            content_resp.total_matches, content_resp.matches.len().min(limit));
         println!();
         return;
     }
+
 
     let response = engine.search(query, 0, limit);
     let search_ms = response.search_time_us as f64 / 1000.0;
