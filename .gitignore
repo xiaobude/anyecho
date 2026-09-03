@@ -31,3 +31,8 @@ Thumbs.db
 .env
 .env.local
 .system_generated/
+
+# Local Notes & Plan Files
+Plan.md
+新建 文本文档.txt
+
