@@ -30,6 +30,13 @@
   - 支持非管理员（普通权限）无感降级遍历与跨卷隔离容错。
 - ⚡ **瞬时冷启动快照 (`index_cache.bin`)**
   - 自动持久化高性能二进制内存快照，下次打开程序仅需 **~80ms** 即可瞬间就绪，无需每次重新扫描全盘。
+- 🔄 **全天候 USN 变动实时监控与 5 秒防抖自动持久化 (v0.1.2)**
+  - 软件启动载入快照后，**全自动挂载全盘 NTFS USN 增量监听**，无感捕获文件创建、删除、重命名与修改。
+  - 内置 **5 秒平息防抖落盘机制**，文件变动平息后自动持久化到本地快照，告别手动“重建索引”。
+- 🛡️ **幽灵文件防御机制 (Ghost File Prevention) (v0.1.2)**
+  - 输出前执行高速物理存在性校验，彻底杜绝关机或未运行时被删除的幽灵文件被输出给用户或管道。
+- 🔌 **IPC 命名管道实时直通 (v0.1.2)**
+  - `ae` 命令行与后台运行的 GUI 实例通过 Windows 原生 Named Pipe 毫秒级直连，零延迟共享内存索引，原生支持目录、文件与黑名单排除规则。
 - 🤖 **专属 AI 大模型与权重文件分类**
   - 内置 AI 专属筛选器，一键秒级定位大模型权重：`.gguf`, `.safetensors`, `.pt`, `.pth`, `.onnx`, `.nvfp4`, `.fp8`, `.awq`, `.gptq`, `.ggml`, `.bin`, `.ckpt` 等。
 - 🔤 **全智能中文拼音检索**
@@ -41,7 +48,7 @@
   - **带搜索词**：瞬间切换为毫秒级全盘搜索引擎，支持管道与 JSON 输出。
 - 📝 **全格式文档全文内容检索 (Office + PDF + 纯文本)**
   - **纯 Rust 原生解析**：零依赖、无需安装 MS Office/Adobe，原生支持 `.docx`, `.xlsx`, `.pptx`, `.pdf`, `.epub`, `.odt` 及所有纯文本/代码格式。
-  - **静默跳过加密与扫描件**：自动剔除密码保护文档与纯图片件，绝不阻塞检索流水线。
+  - **路径与定位优先设计**：结果突出展示完整物理路径与文件名称，支持快捷键直接打开或在资源管理器中定位。
   - **SQLite FTS5 倒排索引缓存**：后台静默为用户文档建立轻量倒排索引，实现毫秒级内容秒出与即搜即用。
 - 📊 **可调整列宽 & 60FPS 虚拟长列表**
   - 虚拟列表技术支撑数百万条结果丝滑滚动，零内存暴涨。
@@ -50,8 +57,9 @@
   - 视口数据并行动态补全真实文件大小（如 `14.2 GB`, `3.5 MB`, `0 B`）及 `<DIR>` 目录标识。
 - 🌐 **双语国际化 (i18n)**
   - 界面原生支持 **中文 / 英文 (English)** 实时一键切换，语言设置自动记忆。
-- 🪶 **8MB 极限瘦身纯绿色单文件**
-  - 借助全依赖 LTO、代码剥离、LLVM `opt-level = "z"` 极致体积优化，完整发行版仅 **8.38 MB**，CLI 伴侣仅 **3.13 MB**。
+- 🪶 **极限瘦身纯绿色单文件**
+  - 借助全依赖 LTO、代码剥离、LLVM `opt-level = "z"` 极致体积优化，完整发行版仅 **~8.4 MB**，CLI 伴侣仅 **~3.2 MB**。
+
 
 
 ---
@@ -195,14 +203,15 @@ ae qwen --json
 ```mermaid
 graph TD
     A[Svelte 5 前端 UI\nRunes 响应式 + 虚拟滚动] <-->|Tauri v2 IPC| B[Rust 核心引擎]
-    B --> C[USN Journal / NTFS 扫描器]
+    B --> C[USN Journal / NTFS 极速扫描器]
     B --> D[多卷 PathTree 路径隔离]
     B --> E[拼音分词提取引擎]
-    B --> F[Tantivy 倒排索引全文库]
+    B --> F[SQLite FTS5 倒排索引全文库]
     B --> G[多线程并行 Grep 搜索]
     B --> H[SQLite 本地配置与历史记录]
-    B --> I[Bincode 内存快照持久化]
-    B --> J[ae.exe 纯控制台 Super-ls 引擎]
+    B --> I[Bincode 内存快照持久化 + 5秒防抖]
+    B --> K[USN 实时增量监听 UsnMonitorManager]
+    B <-->|Windows 命名管道 IPC| J[ae.exe 终端利器 Super-ls / 实时直查]
 ```
 
 * **前端 (Frontend)**:
@@ -211,12 +220,11 @@ graph TD
   * [Tailwind CSS](https://tailwindcss.com/) - 极简暗黑毛玻璃现代 UI
   * [Virtual List](src/lib/components/VirtualList.svelte) - 支撑百万级行数据的虚拟化视口
 * **后端 (Backend / Rust)**:
-  * `winapi` / Windows API - 深度集成 NTFS `FSCTL_ENUM_USN_DATA` 底层调用与 Console 挂载
+  * Windows API - 深度集成 NTFS `FSCTL_ENUM_USN_DATA`、USN Journal 实时监听、Named Pipe 命名管道
   * `rayon` - 全核并行流式检索与元数据补全
-  * `tantivy` - 纯 Rust 高性能全文检索引擎
+  * `rusqlite (bundled)` - 零配置静态内嵌 SQLite 数据库与 FTS5 全文倒排索引
   * `pinyin` - 中文拼音分词与缩写提取
-  * `rusqlite (bundled)` - 零配置静态内嵌 SQLite 数据库
-  * `bincode` - 毫秒级二进制快照序列化
+  * `bincode` - 毫秒级二进制快照序列化与 5 秒防抖自动落盘
 
 ---
 
@@ -260,15 +268,19 @@ npm run release
 ### Highlights
 - ⚡ **Sub-second NTFS USN Journal Indexing**: Indexes millions of files in under 2 seconds.
 - 💾 **Instant Snapshot Cold Boot**: Pre-built memory cache loads in ~80ms on startup.
+- 🔄 **Real-time USN File Watching & 5s Debounce Save**: Background NTFS change listener keeps memory index in sync 24/7 with automatic 5-second debounced persistence.
+- 🛡️ **Ghost File Prevention**: High-speed physical validation prevents deleted ghost files from ever leaking to users or shell pipelines.
+- 🔌 **Named Pipe IPC Direct Connection**: `ae` CLI connects to running GUI instance via Windows Named Pipes for zero-latency in-memory queries with full directory and exclusion rule support.
 - 🤖 **Dedicated AI Weights Filter**: One-click filtering for `.gguf`, `.safetensors`, `.onnx`, `.pt`, `.nvfp4`, etc.
 - 🔤 **Chinese Pinyin Search**: Instant acronym (`fx` -> 凡响) & full pinyin fuzzy matching.
 - 🎯 **Advanced Regex & Query Syntax**: `regex:^qwen.*\.gguf$`, `type:ai`, `size:>10MB`, `ext:pdf`.
 - 💻 **Smart `ae` CLI (Super-ls + Search)**:
   - Run `ae` with no args: modern structured directory listing with icons, human-readable sizes, and space totals.
   - Run `ae <query>`: sub-10ms global file search with pipe and JSON support.
-- 🔍 **Dual Content Search**: Parallel grep & Tantivy-based full-text semantic knowledge base.
-- 🪶 **Ultra-compact Standalone Binary**: 8MB GUI `.exe` and 2.7MB CLI companion with zero external dependencies.
+- 📝 **Full-Text Document Content Search**: Native Rust parsing for PDF, Word, Excel, PowerPoint, ePub, and text files with SQLite FTS5 inverted index cache.
+- 🪶 **Ultra-compact Standalone Binary**: ~8.4MB GUI `.exe` and ~3.2MB CLI companion with zero external dependencies.
 - 🌐 **Full i18n**: Instant English & Chinese language switching.
+
 
 ---
 

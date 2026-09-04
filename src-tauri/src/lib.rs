@@ -4,6 +4,7 @@ pub mod content_search;
 pub mod doc_cache;
 pub mod doc_extractor;
 pub mod engine;
+pub mod ipc;
 pub mod knowledge_index;
 mod mft_enum;
 mod path_tree;
@@ -96,34 +97,57 @@ pub fn run() {
     };
 
     let mut initial_scan_result = None;
+    let mut initial_monitor = None;
     let snapshot_path = persistence::get_snapshot_path();
     if snapshot_path.exists() {
-        let mut eng = engine.write();
-        match eng.load_snapshot(&snapshot_path) {
-            Ok(count) if count > 0 => {
-                tracing::info!("Auto-loaded index cache ({} files) on startup", count);
-                initial_scan_result = Some(ScanResult {
-                    count,
-                    time_ms: 80,
-                });
-                // 启动低优先级后台静默文档文本索引构建
-                let engine_clone = engine.clone();
-                doc_cache.clone().start_background_indexer(move || {
-                    let eng = engine_clone.read();
-                    eng.files()
-                        .iter()
-                        .filter(|f| !f.is_directory && crate::doc_extractor::is_supported_document_ext(&f.ext))
-                        .map(|f| (f.full_path.clone(), f.mtime, f.size))
-                        .collect()
-                });
-
+        let mut loaded_count = 0;
+        {
+            let mut eng = engine.write();
+            match eng.load_snapshot(&snapshot_path) {
+                Ok(count) if count > 0 => {
+                    tracing::info!("Auto-loaded index cache ({} files) on startup", count);
+                    initial_scan_result = Some(ScanResult {
+                        count,
+                        time_ms: 80,
+                    });
+                    loaded_count = count;
+                }
+                Ok(_) => {}
+                Err(e) => {
+                    tracing::warn!("Failed to auto-load index cache: {}", e);
+                }
             }
-            Ok(_) => {}
-            Err(e) => {
-                tracing::warn!("Failed to auto-load index cache: {}", e);
+        }
+
+        if loaded_count > 0 {
+            // 1. 启动低优先级后台静默文档文本索引构建
+            let engine_clone = engine.clone();
+            doc_cache.clone().start_background_indexer(move || {
+                let eng = engine_clone.read();
+                eng.files()
+                    .iter()
+                    .filter(|f| !f.is_directory && crate::doc_extractor::is_supported_document_ext(&f.ext))
+                    .map(|f| (f.full_path.clone(), f.mtime, f.size))
+                    .collect()
+            });
+
+            // 2. ⚡ 致命断点修复：日常启动成功恢复快照后，立即自动启动 NTFS USN 变动监听与 5秒防抖落盘！
+            if let Ok(volumes) = mft_enum::detect_ntfs_volumes() {
+                if !volumes.is_empty() {
+                    let manager = Arc::new(UsnMonitorManager::new(engine.clone()));
+                    let vol_count = volumes.len();
+                    manager.start_monitoring(volumes);
+                    initial_monitor = Some(manager);
+                    tracing::info!("USN monitoring automatically started for {} volume(s) from startup snapshot", vol_count);
+                }
             }
         }
     }
+
+
+    // 启动 IPC 命名管道服务器，供 CLI (ae) 实时查询内存索引
+    ipc::start_ipc_server(engine.clone());
+    tracing::info!("IPC named pipe server started");
 
     tauri::Builder::default()
         .plugin(tauri_plugin_shell::init())
@@ -171,17 +195,30 @@ pub fn run() {
             Ok(())
         })
         .on_window_event(|window, event| {
-            if let tauri::WindowEvent::Focused(false) = event {
-                if window.is_always_on_top().unwrap_or(false) {
-                    let _ = window.hide();
-                    let _ = window.set_always_on_top(false);
+            match event {
+                tauri::WindowEvent::Focused(false) => {
+                    if window.is_always_on_top().unwrap_or(false) {
+                        let _ = window.hide();
+                        let _ = window.set_always_on_top(false);
+                    }
                 }
+                tauri::WindowEvent::CloseRequested { .. } => {
+                    let state = window.state::<AppState>();
+                    let eng = state.engine.read();
+                    let snapshot_path = persistence::get_snapshot_path();
+                    if let Err(e) = eng.save_snapshot(&snapshot_path) {
+                        tracing::warn!("Failed to save snapshot on exit: {}", e);
+                    } else {
+                        tracing::info!("Snapshot saved on GUI exit ({} files)", eng.files_ref().len());
+                    }
+                }
+                _ => {}
             }
         })
         .manage(AppState {
             scan_result: Mutex::new(initial_scan_result),
             engine,
-            monitor: Mutex::new(None),
+            monitor: Mutex::new(initial_monitor),
             knowledge_folders: Mutex::new(knowledge_folders),
             db,
             doc_cache,

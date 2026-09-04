@@ -421,6 +421,68 @@ fn run_cli_scan() {
 }
 
 fn run_cli_search(query: &str, limit: usize, json_mode: bool, path_only: bool) {
+    // 优先尝试 IPC 连接 GUI 内存索引（100% 实时同步）
+    if let Some(mut ipc_resp) = crate::ipc::try_ipc_search(query, limit) {
+        // ⚡ 幽灵文件防御：过滤掉已被外部删除的文件，绝对不把幽灵文件输出给用户
+        ipc_resp.results.retain(|item| Path::new(&item.path).exists());
+        let search_ms = ipc_resp.search_time_us as f64 / 1000.0;
+
+
+        if json_mode {
+            println!("{}", serde_json::to_string_pretty(&ipc_resp).unwrap_or_default());
+            return;
+        }
+
+        if path_only {
+            for item in &ipc_resp.results {
+                println!("{}", item.path);
+            }
+            return;
+        }
+
+        let total_size: u64 = ipc_resp.results.iter().map(|r| r.size).sum();
+        let total_size_str = format_size(total_size, false);
+        println!();
+        println!("⚡ 凡响 AnyEcho | [IPC 实时] 检索: \"{}\" | 命中: {} 个 (共 {}, 显示前 {} 条, 耗时: {:.2} ms)",
+            query, ipc_resp.total, total_size_str, ipc_resp.results.len(), search_ms);
+        println!("{}", "-".repeat(95));
+        println!("{:<4} {:<32} {:<10} {:<10} {}", "#", "名称 (Name)", "类型", "大小", "路径 (Path)");
+        println!("{}", "-".repeat(95));
+
+        for (idx, item) in ipc_resp.results.iter().enumerate() {
+            let display_name = crate::content_search::decode_percent_encoded(&item.name);
+            let display_path = crate::content_search::decode_percent_encoded(&item.path);
+            let name_truncated = if display_name.chars().count() > 30 {
+                format!("{}...", display_name.chars().take(27).collect::<String>())
+            } else {
+                display_name
+            };
+
+            let type_str = if item.is_directory {
+                "DIR".to_string()
+            } else if item.ext.is_empty() {
+                "-".to_string()
+            } else {
+                item.ext.to_uppercase()
+            };
+
+            let size_str = if item.is_directory {
+                "<DIR>".to_string()
+            } else {
+                format_size(item.size, false)
+            };
+
+            println!("{:<4} {:<32} {:<10} {:<10} {}",
+                idx + 1, name_truncated, type_str, size_str, display_path);
+        }
+
+        println!("{}", "-".repeat(95));
+        println!("📊 [IPC 实时模式] 共 {} 条结果 (GUI 内存直查，零延迟)", ipc_resp.total);
+        println!();
+        return;
+    }
+
+    // IPC 失败（GUI 未运行），降级为磁盘快照模式
     let mut engine = SearchEngine::new();
     let snapshot_path = get_snapshot_path();
 
@@ -452,7 +514,10 @@ fn run_cli_search(query: &str, limit: usize, json_mode: bool, path_only: bool) {
         } else {
             Vec::new()
         };
-        let content_resp = search_content_with_query_and_cache(engine.files(), &parsed, &keyword, Some(&cached_hits));
+        let mut content_resp = search_content_with_query_and_cache(engine.files(), &parsed, &keyword, Some(&cached_hits));
+        // ⚡ 幽灵文件防御：过滤掉已被物理删除的文件
+        content_resp.matches.retain(|m| Path::new(&m.file_path).exists());
+        content_resp.total_matches = content_resp.matches.len();
         let search_ms = content_resp.search_time_us as f64 / 1000.0;
 
         if json_mode {
@@ -511,8 +576,12 @@ fn run_cli_search(query: &str, limit: usize, json_mode: bool, path_only: bool) {
     }
 
 
-    let response = engine.search(query, 0, limit);
+    let mut response = engine.search(query, 0, limit);
+    // ⚡ 幽灵文件防御：过滤掉软件未运行期间已被删除的文件，绝不把幽灵文件打印给用户
+    response.items.retain(|item| Path::new(&item.full_path).exists());
+    response.total_matches = response.items.len();
     let search_ms = response.search_time_us as f64 / 1000.0;
+
 
 
     if json_mode {

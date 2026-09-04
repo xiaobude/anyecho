@@ -514,9 +514,10 @@ impl UsnMonitorManager {
         let engine = self.engine.clone();
         let rx = self.change_rx.clone();
         let shutdown = self.shutdown.clone();
+        let snapshot_path = crate::persistence::get_snapshot_path();
 
         std::thread::spawn(move || {
-            batch_processor(engine, rx, shutdown);
+            batch_processor(engine, rx, shutdown, snapshot_path);
         });
     }
 
@@ -533,9 +534,12 @@ fn batch_processor(
     engine: SharedEngine,
     rx: Receiver<(char, Vec<UsnChange>)>,
     shutdown: Arc<AtomicBool>,
+    snapshot_path: std::path::PathBuf,
 ) {
     let mut pending: Vec<(char, UsnChange)> = Vec::new();
     let mut rename_buffer: HashMap<(char, u64), String> = HashMap::new();
+    let mut last_change_time: Option<std::time::Instant> = None;
+    const DEBOUNCE_SECS: u64 = 5;
 
     loop {
         if shutdown.load(Ordering::Relaxed) && rx.is_empty() {
@@ -552,12 +556,25 @@ fn batch_processor(
                         pending.push((volume, change));
                     }
                 }
+                last_change_time = Some(std::time::Instant::now());
             }
             Err(crossbeam_channel::RecvTimeoutError::Timeout) => {}
             Err(crossbeam_channel::RecvTimeoutError::Disconnected) => break,
         }
 
         if pending.is_empty() {
+            // 检查防抖计时器：变动平息 5 秒后执行保存
+            if let Some(last_change) = last_change_time {
+                if last_change.elapsed() >= Duration::from_secs(DEBOUNCE_SECS) {
+                    let eng_ref = engine.read();
+                    if let Err(e) = eng_ref.save_snapshot(&snapshot_path) {
+                        tracing::warn!("Debounced snapshot save failed: {}", e);
+                    } else {
+                        tracing::info!("Snapshot saved after {}s debounce", DEBOUNCE_SECS);
+                    }
+                    last_change_time = None;
+                }
+            }
             continue;
         }
 
@@ -652,6 +669,14 @@ fn batch_processor(
         }
 
         tracing::debug!("Applied batch of {} USN changes", batch_size);
+    }
+
+    // 退出前最终保存一次
+    let eng_ref = engine.read();
+    if let Err(e) = eng_ref.save_snapshot(&snapshot_path) {
+        tracing::warn!("Final snapshot save on shutdown failed: {}", e);
+    } else {
+        tracing::info!("Snapshot saved on USN monitor shutdown");
     }
 }
 

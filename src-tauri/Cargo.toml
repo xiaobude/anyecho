@@ -1,6 +1,6 @@
 [package]
 name = "anyecho"
-version = "0.1.1"
+version = "0.1.2"
 
 edition = "2021"
 
@@ -36,6 +36,7 @@ windows = { version = "0.61", features = [
     "Win32_Storage_FileSystem",
     "Win32_System_IO",
     "Win32_System_Ioctl",
+    "Win32_System_Pipes",
     "Win32_Security",
     "Win32_System_Threading",
     "Win32_System_WindowsProgramming",
